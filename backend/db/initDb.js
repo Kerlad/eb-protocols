@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { openDb, touchDbOpened } = require("./connection");
+const pkg = require("../../package.json");
 
 function initDb() {
 	const db = openDb();
@@ -26,11 +27,11 @@ function initDb() {
 			db_version,
 			sync_revision,
 			sync_status
-		) VALUES (1, '0.1.0', 0, 'local_created')
-	`).run();
+		) VALUES (1, ?, 0, 'local_created')
+	`).run(pkg.version);
 
 	touchDbOpened(db);
-	console.log("SQLite database initialized");
+	console.log("SQLite database initialized v" + pkg.version);
 }
 
 if (require.main === module) {

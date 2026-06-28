@@ -83,6 +83,7 @@ function deleteJournalRecord(db, id) {
 		throw new Error("Запись не найдена");
 	}
 
+	// Физическое удаление (не мягкое) — журнал протоколов не требует аудита удалений
 	db.prepare("DELETE FROM protocol_journal WHERE id = ?").run(id);
 
 	return {

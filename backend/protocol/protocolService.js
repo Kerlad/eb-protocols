@@ -5,27 +5,16 @@ const { buildProtocolPlaceholderMap } = require("./placeholderMap");
 const { renderProtocolDocx, buildOutputFileName } = require("./docxGenerator");
 const employeesRepository = require("../db/repositories/employeesRepository");
 const syncRepository = require("../db/repositories/syncRepository");
+const { formatDateLocal, addYearsLocal, todayLocal } = require("../utils/dateUtils");
 
 function now() {
 	return new Date().toISOString();
 }
 
-function addDays(dateStr, days) {
-	const date = new Date(dateStr);
-	date.setDate(date.getDate() + days);
-	return date.toISOString().slice(0, 10);
-}
-
-function addYears(dateStr, years) {
-	const date = new Date(dateStr);
-	date.setFullYear(date.getFullYear() + years);
-	return date.toISOString().slice(0, 10);
-}
-
 function computeNextCheckDate(checkDate, periodYears) {
 	if (!checkDate) return null;
 	const years = Number(periodYears) || 1;
-	return addYears(checkDate, years);
+	return addYearsLocal(checkDate, years);
 }
 
 function getProtocolDraft(form) {

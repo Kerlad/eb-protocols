@@ -1,15 +1,20 @@
 const path = require("path");
 const fs = require("fs");
 const Database = require("better-sqlite3-multiple-ciphers");
+const { getDataDir, getDbPath } = require("../paths");
 
-const baseDir = process.env.PORTABLE_EXECUTABLE_DIR || process.cwd();
-const DATA_DIR = baseDir;
-const DB_PATH = path.join(DATA_DIR, "eb_protocols.db");
+const DATA_DIR = getDataDir();
+const DB_PATH = getDbPath();
 
 let runtimeDbKey = null;
+let singletonDb = null;
 
 function setRuntimeDbKey(key) {
 	runtimeDbKey = key || null;
+	if (singletonDb) {
+		try { singletonDb.close(); } catch (e) {}
+		singletonDb = null;
+	}
 }
 
 function ensureDataDir() {
@@ -36,6 +41,19 @@ function openDb() {
 	return db;
 }
 
+function getDb() {
+	if (singletonDb) return singletonDb;
+	singletonDb = openDb();
+	return singletonDb;
+}
+
+function closeDb() {
+	if (singletonDb) {
+		try { singletonDb.close(); } catch (e) {}
+		singletonDb = null;
+	}
+}
+
 function touchDbOpened(db) {
 	db.prepare("UPDATE sync_state SET last_opened_at = ? WHERE id = 1")
 		.run(new Date().toISOString());
@@ -53,6 +71,8 @@ function touchDbModified(db) {
 module.exports = {
 	DB_PATH,
 	openDb,
+	getDb,
+	closeDb,
 	setRuntimeDbKey,
 	touchDbOpened,
 	touchDbModified

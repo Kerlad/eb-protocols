@@ -10,7 +10,7 @@ try {
 
 async function setSecret(account, secret) {
 	if (!keytar) {
-		throw new Error("Хранилище ключей (keytar) недоступно");
+		throw new Error("Хранилище ключей (keytar) недоступно. Установите native-модули: npm install");
 	}
 	await keytar.setPassword(SERVICE_NAME, account, secret);
 }
@@ -29,9 +29,15 @@ function isAvailable() {
 	return Boolean(keytar);
 }
 
+function getAvailabilityMessage() {
+	if (keytar) return null;
+	return "Хранилище ключей (keytar) недоступно. Пароли не будут сохраняться. Переустановите приложение или выполните npm install.";
+}
+
 module.exports = {
 	setSecret,
 	getSecret,
 	deleteSecret,
-	isAvailable
+	isAvailable,
+	getAvailabilityMessage
 };

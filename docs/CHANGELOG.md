@@ -1,5 +1,31 @@
 # История изменений
 
+## v0.9.1
+
+### Исправления критических ошибок
+- **[C1] Сдвиг колонок при импорте Excel** — исправлен маппинг в `dataSheetParser.js`: col4=Место работы (workplace_name + workplace_code), col5=Должность, col6=Объём знаний, col7=Категория, col8=Группа, col9=Дата проверки, col10=Дата следующей, col11=Периодичность, col12+=права. Добавлен unit-тест парсера.
+- **[C2] Редактирование работника не сохранялось** — `preload.js`: `invoke(channel, payload)` → `invoke(...args)` для прокидывания всех аргументов IPC. Теперь `employees:update(id, patch)` работает корректно.
+
+### Улучшения безопасности
+- **[H1] PBKDF2 вместо SHA-256** — `dbPassword.js`: ключ шифрования генерируется через PBKDF2 (100k итераций, случайная соль 16 байт). Соль хранится в keytar. Обратная совместимость со старыми БД.
+- **[H2] TLS-сертификат по умолчанию проверяется** — `ftpClient.js`: `rejectUnauthorized: true` по умолчанию. Добавлена опция `allowSelfSigned` для самоподписанных сертификатов.
+- **[H3] Сообщение о недоступности keytar** — `keyStorage.js`: добавлена `getAvailabilityMessage()` для вывода причины недоступности хранилища ключей.
+- **[H4] EPSV→PASV fallback** — `ftpClient.js`: при ошибке EPSV автоматический повтор в PASV-режиме.
+
+### Качество кода
+- **[M1] Единый источник путей** — `connection.js` импортирует `paths.js` вместо дублирования логики.
+- **[M2] Мёртвый код отчёта** — удалены неиспользуемые поля отчёта импорта (departments, chairmen, members, knowledgeScopes).
+- **[M3] Singleton БД** — добавлена `getDb()` для долгоживущего соединения, `closeDb()` для закрытия.
+- **[M4] Автотесты** — 10 тестов (protocolNumbering, placeholderMap, conflictDetector, rightsDetector, dataSheetParser). Запуск: `npm test`.
+- **[M5] Версия из package.json** — `initDb.js` берёт версию из `package.json` вместо хардкода.
+- **[M6] Удалён nsis-конфиг** — не использовался при target=portable.
+- **[M7] Утилиты дат** — `backend/utils/dateUtils.js`: `formatDateLocal`, `addDaysLocal`, `addYearsLocal`, `todayLocal`. Работа в локальной таймзоне.
+- **[M8] Дубли доков** — `docs/README.md` заменён на редирект в корневой README.
+
+### Документация
+- Обновлён `docs/CHANGELOG.md` — запись v0.9.1.
+- `docs/TEST_REPORT.md` добавлен в `.gitignore`.
+
 ## v0.9.0
 
 ### Функциональность и новые возможности

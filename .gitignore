@@ -26,3 +26,6 @@ build/icon.png
 # OS files
 Desktop.ini
 .opencode
+
+# Test reports
+docs/TEST_REPORT.md

@@ -44,14 +44,15 @@ function parseDataSheet(worksheet) {
 			first_name: firstName,
 			middle_name: middleName,
 			full_name: [lastName, firstName, middleName].filter(Boolean).join(" "),
-			workplace_code: cellText(row, 5),
-			position: cellText(row, 6),
-			knowledge_scope_code: cellText(row, 7),
-			personnel_category: cellText(row, 8),
-			electrical_safety_group: cellText(row, 9),
-			last_check_date: cellText(row, 10),
-			next_check_date: cellText(row, 11),
-			check_period_years: Number(cellText(row, 12) || 1),
+			workplace_name: cellText(row, 4),
+			workplace_code: cellText(row, 4),
+			position: cellText(row, 5),
+			knowledge_scope_code: cellText(row, 6),
+			personnel_category: cellText(row, 7),
+			electrical_safety_group: cellText(row, 8),
+			last_check_date: cellText(row, 9),
+			next_check_date: cellText(row, 10),
+			check_period_years: Number(cellText(row, 11) || 1),
 			source_row: rowNumber
 		};
 

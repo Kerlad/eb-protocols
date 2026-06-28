@@ -1,6 +1,6 @@
 {
 	"name": "eb-protocols",
-	"version": "0.9.0",
+	"version": "0.9.1",
 	"description": "Программа формирования протоколов проверки знаний требований электробезопасности",
 	"author": "KrivonosovDA (normaot.ru)",
 	"main": "app/main.js",
@@ -9,6 +9,7 @@
 		"init-db": "node backend/db/initDb.js",
 		"import-excel": "node backend/import/excelImporter.js",
 		"test-docx": "node backend/protocol/docxGenerator.js",
+		"test": "node --test test/*.test.js",
 		"build": "electron-builder",
 		"build:win": "electron-builder --win",
 		"dist": "electron-builder --publish never"
@@ -38,13 +39,6 @@
 			"artifactName": "НормаОТ-Протокол-ЭБ-${version}-${arch}.${ext}",
 			"signAndEditExecutable": false,
 			"icon": "build/icon.ico"
-		},
-		"nsis": {
-			"oneClick": false,
-			"allowToChangeInstallationDirectory": true,
-			"createDesktopShortcut": true,
-			"createStartMenuShortcut": true,
-			"shortcutName": "НормаОТ: Протокол ЭБ"
 		}
 	}
 }

@@ -2,6 +2,7 @@ const SERVICE_NAME = "ru.eb.protocols";
 
 const KEYS = {
 	DB_PASSWORD: "db_password",
+	DB_SALT: "db_salt",
 	FTP_PASSWORD: "ftp_password",
 	AUTO_LOGIN: "auto_login"
 };

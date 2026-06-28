@@ -59,10 +59,6 @@ function normalizeDate(value) {
 		const report = {
 			employeesCreated: 0,
 			employeesUpdated: 0,
-			departments: 0,
-			chairmen: 0,
-			members: 0,
-			knowledgeScopes: 0,
 			workRights: 0,
 			employeeRights: 0,
 			errors: []

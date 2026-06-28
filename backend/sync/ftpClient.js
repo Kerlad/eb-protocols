@@ -17,10 +17,26 @@ async function withClient(config, handler) {
 			user: config.user,
 			password: config.password,
 			secure: config.secure || false,
-			secureOptions: config.secure ? { rejectUnauthorized: false } : undefined
+			secureOptions: config.secure ? { rejectUnauthorized: config.allowSelfSigned ? false : true } : undefined
 		});
 
 		return await handler(client);
+	} catch (error) {
+		const msg = error.message || String(error);
+		if (msg.includes("EPSV") && !config._pasvRetried) {
+			client.ftp.verbose = true;
+			await client.access({
+				host: config.host,
+				port: config.port || 21,
+				user: config.user,
+				password: config.password,
+				secure: config.secure || false,
+				secureOptions: config.secure ? { rejectUnauthorized: config.allowSelfSigned ? false : true } : undefined
+			});
+			const retryConfig = { ...config, _pasvRetried: true };
+			return await handler(client);
+		}
+		throw error;
 	} finally {
 		client.close();
 	}
