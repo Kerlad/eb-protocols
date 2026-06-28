@@ -11,6 +11,7 @@ import_modified.xlsx
 import.xlsx
 import2.xlsx
 .ico.png
+eb_protocols.db
 
 # Build cache
 .opencode/
