@@ -10,6 +10,7 @@ function deriveKey(password, salt) {
 	if (salt) {
 		return crypto.pbkdf2Sync(String(password), salt, PBKDF2_ITERATIONS, PBKDF2_KEYLEN, PBKDF2_DIGEST).toString("hex");
 	}
+	// Legacy fallback: голый SHA-256 без соли — только для чтения старых БД
 	return crypto.createHash("sha256").update(String(password), "utf8").digest("hex");
 }
 

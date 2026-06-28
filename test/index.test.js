@@ -93,7 +93,7 @@ describe("rightsDetector", () => {
 });
 
 describe("dataSheetParser", () => {
-	const { parseDataSheet } = require("../backend/import/dataSheetParser");
+	const { parseDataSheet, normalizeGroup, normalizeCategory } = require("../backend/import/dataSheetParser");
 
 	it("parses employee data with correct column mapping", () => {
 		const mockRow = (cells) => ({
@@ -122,5 +122,94 @@ describe("dataSheetParser", () => {
 		assert.equal(emp.knowledge_scope_code, "ЭЧТ");
 		assert.equal(emp.electrical_safety_group, "IV");
 		assert.equal(emp.check_period_years, 1);
+	});
+
+	it("normalizes group numbers", () => {
+		assert.equal(normalizeGroup("2"), "II");
+		assert.equal(normalizeGroup("3"), "III");
+		assert.equal(normalizeGroup("4"), "IV");
+		assert.equal(normalizeGroup("5"), "V");
+		assert.equal(normalizeGroup("IV"), "IV");
+	});
+
+	it("normalizes category typos", () => {
+		assert.equal(normalizeCategory("Административно-техничесуий"), "Административно-технический");
+		assert.equal(normalizeCategory("оперативно-ремонт"), "Оперативно-ремонтный");
+	});
+
+	it("handles shifted row (empty lastName)", () => {
+		const mockRow = (cells) => ({
+			getCell: (idx) => ({ value: cells[idx - 1] || null })
+		});
+
+		const mockSheet = {
+			getRow: (n) => ({
+				eachCell: (cb) => {
+					const headers = ["Фамилия", "Имя", "Отчество", "Место работы", "Должность",
+						"Объем знаний", "Категория", "Группа", "Дата проверки", "Дата след.", "Периодичность",
+						"Право1"];
+					headers.forEach((h, i) => cb({ value: h }, i + 1));
+				}
+			}),
+			eachRow: (cb) => {
+				cb(mockRow([null, "Петров", "Петр", "Павлович", "Участок", "Электромонтер", "Опер.", "IV", "2026-01-01", "2027-01-01", "1", 1]), 2);
+			}
+		};
+
+		const result = parseDataSheet(mockSheet);
+		assert.equal(result.employees.length, 1);
+		assert.equal(result.employees[0].last_name, "Петров");
+		assert.equal(result.employees[0].first_name, "Петр");
+		assert.equal(result.employees[0].workplace_name, "Участок");
+		assert.equal(result.errors.length, 1);
+		assert.ok(result.errors[0].includes("сдвинуты"));
+	});
+});
+
+describe("dateUtils", () => {
+	const { addYearsLocal, formatDateLocal } = require("../backend/utils/dateUtils");
+
+	it("formats date correctly", () => {
+		assert.equal(formatDateLocal(new Date(2026, 5, 15)), "2026-06-15");
+		assert.equal(formatDateLocal("2026-06-15"), "2026-06-15");
+	});
+
+	it("adds years correctly", () => {
+		assert.equal(addYearsLocal("2026-06-15", 1), "2027-06-15");
+		assert.equal(addYearsLocal("2026-06-15", 3), "2029-06-15");
+		assert.equal(addYearsLocal("2024-01-15", 1), "2025-01-15");
+	});
+
+	it("handles year boundary", () => {
+		assert.equal(addYearsLocal("2026-12-31", 1), "2027-12-31");
+		assert.equal(addYearsLocal("2026-01-01", 1), "2027-01-01");
+	});
+});
+
+describe("paths", () => {
+	const paths = require("../backend/paths");
+
+	it("returns non-null data dir", () => {
+		const dir = paths.getDataDir();
+		assert.ok(dir);
+		assert.ok(typeof dir === "string");
+	});
+
+	it("returns non-null DB path", () => {
+		const p = paths.getDbPath();
+		assert.ok(p);
+		assert.ok(p.endsWith("eb_protocols.db"));
+	});
+
+	it("returns non-null backups dir", () => {
+		const d = paths.getBackupsDir();
+		assert.ok(d);
+		assert.ok(d.endsWith("backups"));
+	});
+
+	it("returns non-null protocols dir", () => {
+		const d = paths.getProtocolsDir();
+		assert.ok(d);
+		assert.ok(d.endsWith("protocols"));
 	});
 });

@@ -68,7 +68,7 @@ function parseDataSheet(worksheet) {
 		const middleName = cellText(row, 3);
 
 		if (!lastName && firstName) {
-			colOffset = -1;
+			colOffset = 1;
 			lastName = cellText(row, 2);
 			const shiftedFirst = cellText(row, 3);
 			const shiftedMiddle = cellText(row, 4);

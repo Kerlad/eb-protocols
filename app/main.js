@@ -40,11 +40,12 @@ function logEvent(event) {
 	}
 }
 
-// Keep all data under one directory consistent with backend/db/connection.js
-// (which uses process.cwd()/data). This ensures the DB used by repositories,
-// backups, sync and generated protocols all live in the same place.
+// Единый источник путей — backend/paths.js
+// БД, бэкапы, протоколы хранятся в getUserDataDir()
+// (EB_DATA_DIR / PORTABLE_EXECUTABLE_DIR / cwd/data)
 const { DB_PATH } = require("../backend/db/connection");
-const DATA_DIR = path.dirname(DB_PATH);
+const { getDataDir } = require("../backend/paths");
+const DATA_DIR = getDataDir();
 
 function dbPath() {
 	return DB_PATH;
@@ -75,6 +76,15 @@ async function applyDbEncryptionKey() {
 		const key = await dbPassword.getRuntimeKey();
 		if (key) {
 			setRuntimeDbKey(key);
+		} else {
+			const stored = await dbPassword.getStoredDbPassword();
+			if (stored) {
+				const { isAvailable, getAvailabilityMessage } = require("../backend/security/keyStorage");
+				if (!isAvailable()) {
+					console.warn("[security] keytar недоступен, пароль БД не может быть извлечён. БД открывается без шифрования!");
+					console.warn("[security]", getAvailabilityMessage());
+				}
+			}
 		}
 	} catch (error) {
 		console.error("applyDbEncryptionKey failed:", error.message);
@@ -203,6 +213,10 @@ function registerIpc() {
 
 	ipcMain.handle("sync:test", async () => {
 		const config = await withDbAsync((db) => buildFtpConfig(db));
+		const { session } = require("electron");
+		const proxyRule = await session.defaultSession.resolveProxy(`ftp://${config.host}:${config.port || 21}`);
+		config._proxyRule = proxyRule;
+		config._envProxy = process.env.FTP_PROXY || process.env.HTTP_PROXY || process.env.http_proxy || null;
 		return ftpClient.testConnection(config);
 	});
 
@@ -246,9 +260,11 @@ function registerIpc() {
 
 	ipcMain.handle("security:getStatus", async () => {
 		const stored = await dbPassword.getStoredDbPassword();
+		const keytarOk = keyStorage.isAvailable();
 		return {
-			keytarAvailable: keyStorage.isAvailable(),
-			dbPasswordEnabled: Boolean(stored)
+			keytarAvailable: keytarOk,
+			dbPasswordEnabled: Boolean(stored),
+			warning: !keytarOk && stored ? keyStorage.getAvailabilityMessage() : null
 		};
 	});
 
@@ -450,6 +466,8 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+	console.log(`[startup] DB path: ${DB_PATH}`);
+	console.log(`[startup] Data dir: ${DATA_DIR}`);
 	await applyDbEncryptionKey();
 
 	try {

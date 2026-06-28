@@ -1,9 +1,8 @@
 const path = require("path");
 const fs = require("fs");
 const Database = require("better-sqlite3-multiple-ciphers");
-const { getDataDir, getDbPath } = require("../paths");
+const { getDbPath, ensureDataDir, migrateFromLegacy } = require("../paths");
 
-const DATA_DIR = getDataDir();
 const DB_PATH = getDbPath();
 
 let runtimeDbKey = null;
@@ -17,14 +16,9 @@ function setRuntimeDbKey(key) {
 	}
 }
 
-function ensureDataDir() {
-	if (!fs.existsSync(DATA_DIR)) {
-		fs.mkdirSync(DATA_DIR, { recursive: true });
-	}
-}
-
 function openDb() {
 	ensureDataDir();
+	migrateFromLegacy();
 
 	const options = {};
 	if (runtimeDbKey) {

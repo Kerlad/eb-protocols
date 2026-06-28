@@ -5,7 +5,7 @@ const { buildProtocolPlaceholderMap } = require("./placeholderMap");
 const { renderProtocolDocx, buildOutputFileName } = require("./docxGenerator");
 const employeesRepository = require("../db/repositories/employeesRepository");
 const syncRepository = require("../db/repositories/syncRepository");
-const { formatDateLocal, addYearsLocal, todayLocal } = require("../utils/dateUtils");
+const { addYearsLocal } = require("../utils/dateUtils");
 
 function now() {
 	return new Date().toISOString();
@@ -107,7 +107,7 @@ async function saveProtocol(form, options = {}) {
 		};
 
 		const placeholderMap = buildProtocolPlaceholderMap(record);
-		const protocolsDir = options.protocolsDir || path.join(process.cwd(), "data", "protocols");
+		const protocolsDir = options.protocolsDir || require("../paths").getProtocolsDir();
 		const outputPath = path.join(protocolsDir, buildOutputFileName(record));
 
 		renderProtocolDocx({

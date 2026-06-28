@@ -1151,7 +1151,10 @@
 		if (!statusEl) return;
 		try {
 			const status = await api.security.getStatus();
-			if (status.dbPasswordEnabled) {
+			if (status.warning) {
+				statusEl.textContent = "⚠️ " + status.warning;
+				statusEl.className = "status bad";
+			} else if (status.dbPasswordEnabled) {
 				statusEl.textContent = "ВКЛЮЧЕНО (База зашифрована)";
 				statusEl.className = "status ok";
 			} else {

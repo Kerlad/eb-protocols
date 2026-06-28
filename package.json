@@ -1,6 +1,6 @@
 {
 	"name": "eb-protocols",
-	"version": "0.9.3",
+	"version": "0.9.4",
 	"description": "Программа формирования протоколов проверки знаний требований электробезопасности",
 	"author": "KrivonosovDA (normaot.ru)",
 	"main": "app/main.js",
@@ -36,7 +36,7 @@
 		"icon": "build/icon.ico",
 		"win": {
 			"target": ["portable"],
-			"artifactName": "НормаОТ-Протокол-ЭБ-${version}-${arch}.${ext}",
+			"artifactName": "НормаОТ-Протокол-ЭБ-${arch}.${ext}",
 			"signAndEditExecutable": false,
 			"icon": "build/icon.ico"
 		}
