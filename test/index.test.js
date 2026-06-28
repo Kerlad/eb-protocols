@@ -213,3 +213,74 @@ describe("paths", () => {
 		assert.ok(d.endsWith("protocols"));
 	});
 });
+
+describe("ftpClient proxy", () => {
+	const { parseProxyRule, parseEnvProxy, isNoProxy } = require("../backend/sync/ftpClient");
+
+	it("parseProxyRule handles SOCKS5", () => {
+		const result = parseProxyRule("SOCKS5 127.0.0.1:1080");
+		assert.deepEqual(result, { type: "SOCKS", version: "5", host: "127.0.0.1", port: 1080 });
+	});
+
+	it("parseProxyRule handles SOCKS4", () => {
+		const result = parseProxyRule("SOCKS4 10.0.0.1:1080");
+		assert.deepEqual(result, { type: "SOCKS", version: "4", host: "10.0.0.1", port: 1080 });
+	});
+
+	it("parseProxyRule handles HTTP PROXY", () => {
+		const result = parseProxyRule("PROXY proxy.corp.local:3128");
+		assert.deepEqual(result, { type: "HTTP", host: "proxy.corp.local", port: 3128 });
+	});
+
+	it("parseProxyRule handles DIRECT", () => {
+		assert.equal(parseProxyRule("DIRECT"), null);
+	});
+
+	it("parseProxyRule handles null/undefined", () => {
+		assert.equal(parseProxyRule(null), null);
+		assert.equal(parseProxyRule(undefined), null);
+	});
+
+	it("parseProxyRule handles garbage", () => {
+		assert.equal(parseProxyRule("random text"), null);
+	});
+
+	it("parseEnvProxy handles http proxy", () => {
+		const result = parseEnvProxy("http://proxy:8080");
+		assert.deepEqual(result, { type: "HTTP", host: "proxy", port: 8080 });
+	});
+
+	it("parseEnvProxy handles socks5 proxy", () => {
+		const result = parseEnvProxy("socks5://127.0.0.1:1080");
+		assert.deepEqual(result, { type: "SOCKS", version: "5", host: "127.0.0.1", port: 1080 });
+	});
+
+	it("parseEnvProxy handles socks4 proxy", () => {
+		const result = parseEnvProxy("socks4://10.0.0.1:1080");
+		assert.deepEqual(result, { type: "SOCKS", version: "4", host: "10.0.0.1", port: 1080 });
+	});
+
+	it("parseEnvProxy handles null", () => {
+		assert.equal(parseEnvProxy(null), null);
+		assert.equal(parseEnvProxy(""), null);
+	});
+
+	it("isNoProxy matches exact host", () => {
+		assert.equal(isNoProxy("localhost", "localhost"), true);
+		assert.equal(isNoProxy("myhost", "localhost"), false);
+	});
+
+	it("isNoProxy matches wildcard", () => {
+		assert.equal(isNoProxy("anyhost", "*"), true);
+	});
+
+	it("isNoProxy matches domain suffix", () => {
+		assert.equal(isNoProxy("ftp.corp.local", ".corp.local"), true);
+		assert.equal(isNoProxy("ftp.other.com", ".corp.local"), false);
+	});
+
+	it("isNoProxy handles empty", () => {
+		assert.equal(isNoProxy("host", ""), false);
+		assert.equal(isNoProxy("host", null), false);
+	});
+});

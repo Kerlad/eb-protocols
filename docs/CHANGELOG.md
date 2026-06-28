@@ -1,5 +1,23 @@
 # История изменений
 
+## v0.9.5
+
+### FTP-синхронизация через корпоративный прокси
+- **[A1] Прокси для всех операций** — `resolveFtpProxy()` вынесен в общий помощник, вызывается для test/status/upload/download.
+- **[A2] SOCKS-прокси** — добавлена зависимость `socks`. Поддержка SOCKS4/5 через `SocksClient.createConnection`. HTTP CONNECT tunnel для HTTP-прокси.
+- **[A3] Удалён фиктивный `client.ftp.pasv`** — basic-ftp сам управляет EPSV/PASV. Fallback при ошибках data-канала.
+- **[A4] Диагностика подключения** — кнопка «Диагностика» в настройках. Пошагово: прокси, TCP, FTP LIST, итог с подсказками. IPC `sync:diagnose`.
+- **[A5] NO_PROXY** — поддержка переменной окружения `NO_PROXY` для обхода прокси.
+- **TLS** — `rejectUnauthorized: true` по умолчанию, `allowSelfSigned` — явная опция.
+
+### Тесты
+- 34 теста (было 20): парсинг прокси (SOCKS4/5, HTTP, DIRECT), NO_PROXY, environment proxy.
+- `npm test` зелёный.
+
+### Документация
+- README: раздел «Работа за корпоративным прокси».
+- CHANGELOG: запись v0.9.5.
+
 ## v0.9.4
 
 ### Исправления критических ошибок

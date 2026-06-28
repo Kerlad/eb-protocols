@@ -1426,6 +1426,7 @@ main.content,
             <div class="field span-12"><label>Удаленный путь к файлу БД</label><input id="ftpPath" placeholder="/eb_protocols/eb_protocols.db"></div>
             <div class="field span-12 actions-row" style="margin-top:12px; gap:8px;">
               <button onclick="testFtpConnection()">Проверить связь</button>
+              <button class="ghost" onclick="diagnoseFtpConnection()">Диагностика</button>
               <button class="ghost" onclick="syncUpload()">Выгрузить в облако</button>
               <button class="ghost" onclick="syncDownload()">Загрузить из облака</button>
             </div>
@@ -1504,7 +1505,7 @@ main.content,
           </div>
           <div class="section-divider"></div>
           <h3>Версия</h3>
-          <p><span class="status blue">v0.9.4</span></p>
+          <p><span class="status blue">v0.9.5</span></p>
           <p class="muted" style="margin-top:8px">Последнее обновление: июнь 2026 г.</p>
           <div class="section-divider"></div>
           <h3>Лицензия</h3>

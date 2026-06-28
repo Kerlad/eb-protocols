@@ -91,6 +91,19 @@ async function applyDbEncryptionKey() {
 	}
 }
 
+async function resolveFtpProxy(config) {
+	const { session } = require("electron");
+	const proxyUrl = `ftp://${config.host}:${config.port || 21}`;
+	try {
+		const rule = await session.defaultSession.resolveProxy(proxyUrl);
+		config._proxyRule = rule;
+	} catch (e) {
+		console.log("[proxy] resolveProxy failed:", e.message);
+	}
+	config._envProxy = process.env.FTP_PROXY || process.env.HTTP_PROXY || process.env.http_proxy || null;
+	config._noProxy = process.env.NO_PROXY || process.env.no_proxy || "";
+}
+
 function registerIpc() {
 	ipcMain.handle("employees:searchByLastName", (event, lastName) =>
 		withDb((db) => employeesRepository.findByLastName(db, lastName || ""))
@@ -213,17 +226,21 @@ function registerIpc() {
 
 	ipcMain.handle("sync:test", async () => {
 		const config = await withDbAsync((db) => buildFtpConfig(db));
-		const { session } = require("electron");
-		const proxyRule = await session.defaultSession.resolveProxy(`ftp://${config.host}:${config.port || 21}`);
-		config._proxyRule = proxyRule;
-		config._envProxy = process.env.FTP_PROXY || process.env.HTTP_PROXY || process.env.http_proxy || null;
+		await resolveFtpProxy(config);
 		return ftpClient.testConnection(config);
+	});
+
+	ipcMain.handle("sync:diagnose", async () => {
+		const config = await withDbAsync((db) => buildFtpConfig(db));
+		await resolveFtpProxy(config);
+		return ftpClient.diagnoseConnection(config);
 	});
 
 	ipcMain.handle("sync:status", async () => {
 		const db = openDb();
 		try {
 			const config = await buildFtpConfig(db);
+			await resolveFtpProxy(config);
 			return await syncService.getStatus({ db, config });
 		} finally {
 			db.close();
@@ -234,6 +251,7 @@ function registerIpc() {
 		const db = openDb();
 		try {
 			const config = await buildFtpConfig(db);
+			await resolveFtpProxy(config);
 			const result = await syncService.uploadDb({ db, config, dbPath: dbPath() });
 			return result;
 		} finally {
@@ -246,6 +264,7 @@ function registerIpc() {
 		const db = openDb();
 		try {
 			config = await buildFtpConfig(db);
+			await resolveFtpProxy(config);
 		} finally {
 			db.close();
 		}

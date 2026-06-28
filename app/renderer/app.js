@@ -1088,21 +1088,31 @@
 		try {
 			const res = await api.sync.test();
 			if (res && res.ok) {
-				toast("FTP соединение успешно установлено!");
+				toast(`FTP OK! Прокси: ${res.proxy || "DIRECT"}, записей: ${res.entries}`);
 			} else {
-				toast("Ошибка подключения: " + (res?.error || "неизвестная ошибка"));
+				toast("Ошибка: " + (res?.error || "неизвестная ошибка"));
 			}
 		} catch (e) {
 			const msg = e.message || String(e);
-			if (msg.includes("ECONNREFUSED")) {
-				toast("FTP-сервер недоступен. Проверьте хост и порт.");
-			} else if (msg.includes("ENOTFOUND")) {
-				toast("Хост FTP не найден. Проверьте адрес.");
-			} else if (msg.includes("ETIMEDOUT")) {
-				toast("Превышено время ожидания. Проверьте сетевое подключение.");
-			} else {
-				toast("Ошибка FTP: " + msg.split("\n")[0]);
-			}
+			if (msg.includes("ECONNREFUSED")) toast("FTP-сервер недоступен. Проверьте хост и порт.");
+			else if (msg.includes("ENOTFOUND")) toast("Хост FTP не найден.");
+			else if (msg.includes("ETIMEDOUT")) toast("Таймаут. Проверьте сеть/фаервол.");
+			else toast("Ошибка: " + msg.split("\n")[0]);
+		}
+	};
+
+	window.diagnoseFtpConnection = async function () {
+		toast("Запуск диагностики...");
+		try {
+			const res = await api.sync.diagnose();
+			const lines = (res.results || []).map(r => `${r.ok ? "✓" : "✗"} ${r.step}: ${r.detail}`);
+			const proxy = res.proxy || "DIRECT";
+			const allOk = res.results && res.results.every(r => r.ok);
+			const title = allOk ? "Диагностика: всё ОК" : "Диагностика: проблемы найдены";
+			const body = lines.join("\n");
+			await themedConfirm(title, `Прокси: ${proxy}\n\n${body}`);
+		} catch (e) {
+			toast("Ошибка диагностики: " + e.message);
 		}
 	};
 
