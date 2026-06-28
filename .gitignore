@@ -4,3 +4,24 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+
+# Development artifacts
+fix.js
+import_modified.xlsx
+import.xlsx
+import2.xlsx
+.ico.png
+
+# Build cache
+.opencode/
+build/icon.png
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+Desktop.ini
+.opencode
