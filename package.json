@@ -1,6 +1,6 @@
 {
 	"name": "eb-protocols",
-	"version": "0.9.1",
+	"version": "0.9.3",
 	"description": "Программа формирования протоколов проверки знаний требований электробезопасности",
 	"author": "KrivonosovDA (normaot.ru)",
 	"main": "app/main.js",

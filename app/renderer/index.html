@@ -1176,7 +1176,7 @@ table{background:var(--app-panel)!important;color:var(--notion-text)!important;b
 .meta,.right-item{background:var(--notion-bg-soft)!important;border-color:var(--notion-border-soft)!important;color:var(--notion-text)!important;}
 .preview{background:var(--app-preview)!important;color:#2d2a2e!important;border-color:rgba(45,42,46,.18)!important;}
 .preview h3,.preview p{color:#2d2a2e!important;}.preview .muted{color:#625d63!important}.line{border-color:#2d2a2e!important;color:#2d2a2e!important;}
-.status.ok{background:color-mix(in srgb,var(--ok) 16%,transparent)!important;color:var(--ok)!important}.status.warn{background:color-mix(in srgb,var(--warn) 18%,transparent)!important;color:var(--warn)!important}.status.bad{background:color-mix(in srgb,var(--danger) 16%,transparent)!important;color:var(--danger)!important}.status.blue{background:var(--notion-blue-bg)!important;color:var(--notion-blue)!important}
+.status.ok{background:color-mix(in srgb,var(--ok) 16%,transparent)!important;color:var(--ok)!important}.status.warn{background:color-mix(in srgb,var(--warn) 18%,transparent)!important;color:var(--warn)!important}.status.bad,.status.bad_star{background:color-mix(in srgb,var(--danger) 16%,transparent)!important;color:var(--danger)!important}.status.blue{background:var(--notion-blue-bg)!important;color:var(--notion-blue)!important}
 button,.notion-button{background:var(--app-accent)!important;color:#fff!important;}
 html[data-theme="monokai-dark"] button:not(.ghost),html[data-theme="dracula"] button:not(.ghost){color:#1f1d21!important;}
 .theme-picker{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--notion-border);background:var(--app-panel);border-radius:12px}.theme-picker span{font-size:13px;color:var(--muted)}.theme-picker select{padding:6px 28px 6px 10px;font-size:13px;min-width:168px;}
@@ -1504,7 +1504,7 @@ main.content,
           </div>
           <div class="section-divider"></div>
           <h3>Версия</h3>
-          <p><span class="status blue">v0.9.1</span></p>
+          <p><span class="status blue">v0.9.3</span></p>
           <p class="muted" style="margin-top:8px">Последнее обновление: июнь 2026 г.</p>
           <div class="section-divider"></div>
           <h3>Лицензия</h3>
@@ -1683,6 +1683,7 @@ main.content,
 </div></div></div>
 <div id="confirmModal" class="modal-backdrop"><div class="modal" style="max-width:440px"><div class="modal-head"><div><h3 id="confirmTitle">Подтверждение</h3><p class="muted" id="confirmMessage"></p></div></div><div id="confirmInputWrap" style="margin-top:12px;display:none"><input id="confirmInput" style="width:100%" placeholder=""></div><div class="actions-row" style="margin-top:16px;justify-content:flex-end"><button class="ghost" id="confirmCancelBtn" onclick="window._confirmResolve(false)">Отмена</button><button id="confirmOkBtn" onclick="window._confirmResolve(true)">OK</button></div></div></div>
 <div id="scheduleModal" class="modal-backdrop"><div class="modal" style="max-width:600px"><div class="modal-head"><div><h3 id="scheduleModalTitle">Работники</h3></div><button class="ghost" onclick="document.getElementById('scheduleModal').classList.remove('active')">Закрыть</button></div><div id="scheduleModalBody" class="modal-list"></div></div></div>
+<div id="importErrorsModal" class="modal-backdrop"><div class="modal" style="max-width:560px"><div class="modal-head"><div><h3>Результаты импорта</h3><p class="muted" id="importErrorsSummary"></p></div><button class="ghost" onclick="document.getElementById('importErrorsModal').classList.remove('active')">Закрыть</button></div><div id="importErrorsBody" style="max-height:400px;overflow-y:auto;margin-top:12px"></div></div></div>
 <div id="toast" class="toast"></div>
 <script>
 function setTheme(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('eb-ui-theme',t);const s=document.getElementById('themeSelect');if(s)s.value=t;}

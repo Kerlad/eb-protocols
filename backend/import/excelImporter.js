@@ -67,6 +67,11 @@ function normalizeDate(value) {
 		const tx = db.transaction(() => {
 
 			const data = parseDataSheet(dataSheet);
+
+			if (data.errors && data.errors.length) {
+				report.errors.push(...data.errors);
+			}
+
 			const rightsMap = new Map();
 
 			data.rightsColumns.forEach((right, index) => {
@@ -83,10 +88,39 @@ function normalizeDate(value) {
 			const employeeIdBySourceRow = new Map();
 
 			for (const employee of data.employees) {
+				let lastCheck = normalizeDate(employee.last_check_date);
+				let nextCheck = normalizeDate(employee.next_check_date);
+				let dateDeferred = false;
+
+				if (!lastCheck) {
+					lastCheck = "2000-01-01";
+				}
+
+				if (lastCheck === "2000-01-01") {
+					const today = new Date();
+					today.setDate(today.getDate() + 14);
+					nextCheck = today.toISOString().slice(0, 10);
+					dateDeferred = true;
+				} else if (!nextCheck) {
+					const checkDate = new Date(lastCheck + "T00:00:00");
+					const period = (employee.personnel_category || "").includes("Административно") ? 3 : 1;
+					checkDate.setFullYear(checkDate.getFullYear() + period);
+					nextCheck = checkDate.toISOString().slice(0, 10);
+				}
+
+				const today = new Date().toISOString().slice(0, 10);
+				if (nextCheck && nextCheck < today) {
+					const deferred = new Date();
+					deferred.setDate(deferred.getDate() + 14);
+					nextCheck = deferred.toISOString().slice(0, 10);
+					dateDeferred = true;
+				}
+
 				const normalizedEmployee = {
 					...employee,
-					last_check_date: normalizeDate(employee.last_check_date),
-					next_check_date: normalizeDate(employee.next_check_date)
+					last_check_date: lastCheck,
+					next_check_date: nextCheck,
+					note: dateDeferred ? "DATE_DEFERRED" : (employee.note || null)
 				};
 
 				const result = employeesRepository.upsertEmployee(db, normalizedEmployee);

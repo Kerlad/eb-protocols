@@ -74,6 +74,8 @@
 
 	function mapEmployee(row) {
 		if (!row) return null;
+		const isDeferred = row.note === "DATE_DEFERRED";
+		const status = isDeferred ? "bad_star" : statusByNext(row.next_check_date);
 		return {
 			id: row.id,
 			last: row.last_name || "",
@@ -84,7 +86,7 @@
 			lastCheck: row.last_check_date || "",
 			next: row.next_check_date || "",
 			period: row.check_period_years || 1,
-			status: statusByNext(row.next_check_date),
+			status: status,
 			rights: Array.isArray(row.rights)
 				? row.rights.map((r) => {
 					const name = r.name || r.protocol_text || "";
@@ -473,7 +475,7 @@
 			const list = (rows || []).map(mapEmployee).filter((w) => w != null).sort((a, b) => a.fio.localeCompare(b.fio, "ru"));
 			if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" class="muted">База пуста. Импортируйте данные из Excel.</td></tr>'; return; }
 		tbody.innerHTML = list.map((w) => {
-				const label = w.status === "bad" ? "просрочено" : w.status === "warn" ? "скоро" : "актуально";
+				const label = w.status === "bad_star" ? "Просрочено*" : w.status === "bad" ? "просрочено" : w.status === "warn" ? "скоро" : "актуально";
 				return `<tr>
 					<td style="vertical-align:middle;text-align:left"><b>${esc(w.fio)}</b></td>
 					<td style="vertical-align:middle;text-align:left">${esc(w.work)}</td>
@@ -650,7 +652,19 @@
 			toast("Выберите Excel-файл...");
 			const report = await api.import.excel();
 			if (!report || report.canceled) return;
-			toast(`Импорт: +${report.employeesCreated} обн.${report.employeesUpdated} прав:${report.workRights} связей:${report.employeeRights}`);
+			let msg = `Импорт завершён: +${report.employeesCreated} создано, ${report.employeesUpdated} обновлено, прав: ${report.workRights}`;
+			if (report.errors && report.errors.length) {
+				const modal = document.getElementById("importErrorsModal");
+				const summary = document.getElementById("importErrorsSummary");
+				const body = document.getElementById("importErrorsBody");
+				summary.textContent = `Найдено ошибок: ${report.errors.length}`;
+				body.innerHTML = report.errors.map(e =>
+					`<div style="padding:8px 10px;border-bottom:1px solid var(--notion-border-soft);font-size:13px;color:var(--notion-text)">${esc(e)}</div>`
+				).join("");
+				modal.classList.add("active");
+			} else {
+				toast(msg);
+			}
 			await loadReferences();
 			await window.renderEmployees();
 			await loadDashboard();
@@ -735,6 +749,35 @@
 	};
 
 	window.submitAddEmployee = async function () {
+		let lastCheck = getVal("empLastCheck") || null;
+		let nextCheck = getVal("empNextCheck") || null;
+		let dateDeferred = false;
+
+		if (!lastCheck) {
+			lastCheck = "2000-01-01";
+		}
+
+		if (lastCheck === "2000-01-01") {
+			const today = new Date();
+			today.setDate(today.getDate() + 14);
+			nextCheck = today.toISOString().slice(0, 10);
+			dateDeferred = true;
+		} else if (!nextCheck) {
+			const cat = getVal("empCategory") || "";
+			const period = cat.includes("Административно") ? 3 : 1;
+			const d = new Date(lastCheck + "T00:00:00");
+			d.setFullYear(d.getFullYear() + period);
+			nextCheck = d.toISOString().slice(0, 10);
+		}
+
+		const today = new Date().toISOString().slice(0, 10);
+		if (nextCheck && nextCheck < today) {
+			const deferred = new Date();
+			deferred.setDate(deferred.getDate() + 14);
+			nextCheck = deferred.toISOString().slice(0, 10);
+			dateDeferred = true;
+		}
+
 		const employee = {
 			last_name: getVal("empLastName").trim(),
 			first_name: getVal("empFirstName").trim(),
@@ -746,9 +789,10 @@
 			electrical_safety_group: getVal("empGroup") || null,
 			personnel_category: getVal("empCategory") || null,
 			knowledge_scope_code: getVal("empScope").trim() || null,
-			last_check_date: getVal("empLastCheck") || null,
-			next_check_date: getVal("empNextCheck") || null,
+			last_check_date: lastCheck,
+			next_check_date: nextCheck,
 			check_period_years: Number(getVal("empPeriod", "1")) || 1,
+			note: dateDeferred ? "DATE_DEFERRED" : null,
 			rights: [...document.querySelectorAll("#empRightsBox input:checked")].map(i => Number(i.dataset.rightId))
 		};
 		if (!employee.last_name || !employee.first_name) { toast("Укажите фамилию и имя"); return; }
