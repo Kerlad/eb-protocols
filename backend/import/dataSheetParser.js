@@ -34,7 +34,8 @@ const CATEGORY_MAP = {
 	"оперативно-ремонт": "Оперативно-ремонтный",
 	"оперативный": "Оперативный",
 	"ремонтный": "Ремонтный",
-	"диспетчерский": "Диспетчерский"
+	"диспетчерский": "Диспетчерский",
+	"инспектирующий": "Инспектирующий"
 };
 
 function normalizeCategory(value) {
@@ -59,7 +60,7 @@ function parseDataSheet(worksheet) {
 	const employeeRights = [];
 	const errors = [];
 
-	worksheet.eachRow((row, rowNumber) => {
+	worksheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
 		if (rowNumber === 1) return;
 
 		let colOffset = 0;

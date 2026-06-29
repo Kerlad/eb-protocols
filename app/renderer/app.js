@@ -460,29 +460,49 @@
 
 	async function refreshProtocolNumber() {
 		try {
-			const checkDate = getVal("checkDate", "") || new Date().toISOString().slice(0, 10);
+			setVal("checkDate", new Date().toISOString().slice(0, 10));
+			const checkDate = getVal("checkDate");
 			const res = await api.protocols.getNextNumber(checkDate);
 			if (res && res.nextNumber) { setVal("protocolNo", res.nextNumber); if (typeof window.previewProtocol === "function") window.previewProtocol(); }
 		} catch (e) { console.warn("refreshProtocolNumber:", e.message); }
 	}
 	window.refreshProtocolNumber = refreshProtocolNumber;
 
+	let employeesSortKey = "fio";
+	let employeesSortAsc = true;
+
+	window.sortEmployees = function (key) {
+		if (employeesSortKey === key) employeesSortAsc = !employeesSortAsc;
+		else { employeesSortKey = key; employeesSortAsc = true; }
+		window.renderEmployees();
+	};
+
 	window.renderEmployees = async function () {
 		const tbody = byId("employeesRows");
 		if (!tbody) return;
 		try {
 			const rows = await api.employees.listAll();
-			const list = (rows || []).map(mapEmployee).filter((w) => w != null).sort((a, b) => a.fio.localeCompare(b.fio, "ru"));
+			let list = (rows || []).map(mapEmployee).filter((w) => w != null);
+			const s = employeesSortKey;
+			const dir = employeesSortAsc ? 1 : -1;
+			list.sort((a, b) => {
+				const va = a[s] || "";
+				const vb = b[s] || "";
+				if (s === "lastCheck" || s === "next") {
+					return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
+				}
+				return va.localeCompare(vb, "ru") * dir;
+			});
 			if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" class="muted">База пуста. Импортируйте данные из Excel.</td></tr>'; return; }
 		tbody.innerHTML = list.map((w) => {
 				const label = w.status === "bad_star" ? "Просрочено*" : w.status === "bad" ? "просрочено" : w.status === "warn" ? "скоро" : "актуально";
 				return `<tr>
-					<td style="vertical-align:middle;text-align:left"><b>${esc(w.fio)}</b></td>
-					<td style="vertical-align:middle;text-align:left">${esc(w.work)}</td>
-					<td style="vertical-align:middle;text-align:left">${esc(w.pos)}</td>
-					<td style="vertical-align:middle;text-align:left">${esc(w.group)}</td>
-					<td style="vertical-align:middle;text-align:left">${fmt(w.lastCheck)}</td>
-					<td style="vertical-align:middle;text-align:left">${fmt(w.next)}</td>
+					<td style="vertical-align:middle;text-align:center"><b>${esc(w.fio)}</b></td>
+					<td style="vertical-align:middle;text-align:center">${esc(w.work)}</td>
+					<td style="vertical-align:middle;text-align:center">${esc(w.pos)}</td>
+					<td style="vertical-align:middle;text-align:center">${esc(w.group)}</td>
+					<td style="vertical-align:middle;text-align:center">${fmt(w.lastCheck)}</td>
+					<td style="vertical-align:middle;text-align:center">${fmt(w.next)}</td>
 					<td style="vertical-align:middle;text-align:center"><span class="status ${w.status}">${label}</span></td>
 					<td style="white-space:nowrap;width:1%;vertical-align:middle">
 						<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
@@ -525,11 +545,12 @@
 		if (!table) return;
 		try {
 			const rows = await api.journal.list({});
-			const head = "<tr><th>№</th><th>ФИО</th><th>Дата</th><th>Группа</th><th>Оценка</th><th>Следующая</th><th>Файл</th></tr>";
-			if (!rows || !rows.length) { table.innerHTML = head + '<tr><td colspan="7" class="muted">Пока нет протоколов</td></tr>'; return; }
-			table.innerHTML = head + rows.map((r) => {
+			if (!rows || !rows.length) { table.innerHTML = '<tr><td colspan="8" class="muted">Пока нет протоколов</td></tr>'; return; }
+			const tbody = table.querySelector("tbody") || table;
+			tbody.innerHTML = rows.map((r) => {
 				const docxLink = r.docx_path ? `<a href="#" style="color:var(--notion-blue);text-decoration:underline" onclick="openFile('${r.docx_path.replace(/\\/g, '\\\\')}')">DOCX</a>` : "—";
-				return `<tr><td>${r.protocol_number}</td><td>${esc(r.full_name_snapshot)}</td><td>${fmt(r.check_date)}</td><td>${esc(r.electrical_safety_group)}</td><td><span class="status ok">${esc(r.final_result)}</span></td><td>${fmt(r.next_check_date)}</td><td>${docxLink}</td><td style="white-space:nowrap;text-align:right;width:1%"><button class="ghost" style="color:var(--danger);border-color:var(--danger);padding:4px 10px;font-size:12px" onclick="deleteJournalRecord(${r.id},'${esc(r.full_name_snapshot)}',${r.protocol_number})">Удалить</button></td></tr>`;
+				const reasonShort = (r.reason || "").includes("Внеоч") ? "Внеоч" : "Очер";
+				return `<tr><td style="text-align:center">${r.protocol_number}</td><td style="text-align:center">${esc(r.full_name_snapshot)}</td><td style="text-align:center;font-size:12px">${reasonShort}</td><td style="text-align:center">${fmt(r.check_date)}</td><td style="text-align:center">${esc(r.electrical_safety_group)}</td><td style="text-align:center">${esc(r.final_result)}</td><td style="text-align:center">${fmt(r.next_check_date)}</td><td style="text-align:center">${docxLink}</td></tr>`;
 			}).join("");
 		} catch (e) { console.warn("renderJournal:", e.message); }
 	}
@@ -644,6 +665,33 @@
 				}).join("");
 			}
 		} catch (e) { console.warn("loadDashboard:", e.message); }
+	};
+
+	window.showUpcomingModal = async function () {
+		try {
+			const rows = await api.employees.listAll();
+			const today = new Date();
+			const in30 = new Date(today.getTime() + 30 * 86400000);
+			const todayStr = today.toISOString().slice(0, 10);
+			const in30Str = in30.toISOString().slice(0, 10);
+			const list = (rows || []).map(mapEmployee).filter(w => w && w.next && w.next >= todayStr && w.next <= in30Str);
+			const body = list.length
+				? `<div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)}</div></div><span class="status warn">${fmt(w.next)}</span></div>`).join("")}</div>`
+				: '<div class="muted" style="padding:16px 0">Нет работников со статусом «Скоро»</div>';
+			await themedConfirm(`Скоро — ${list.length} чел.`, body);
+		} catch (e) { toast("Ошибка: " + e.message); }
+	};
+
+	window.showOverdueModal = async function () {
+		try {
+			const rows = await api.employees.listAll();
+			const today = new Date().toISOString().slice(0, 10);
+			const list = (rows || []).map(mapEmployee).filter(w => w && (w.status === "bad" || w.status === "bad_star"));
+			const body = list.length
+				? `<div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)}</div></div><span class="status ${w.status}">${w.status === "bad_star" ? "Просрочено*" : "Просрочено"}</span></div>`).join("")}</div>`
+				: '<div class="muted" style="padding:16px 0">Нет просроченных работников</div>';
+			await themedConfirm(`Просрочено — ${list.length} чел.`, body);
+		} catch (e) { toast("Ошибка: " + e.message); }
 	};
 
 	// === Import Excel ===

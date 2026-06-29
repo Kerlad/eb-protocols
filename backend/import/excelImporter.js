@@ -335,10 +335,14 @@ async function exportEmployeesToExcel(filePath) {
 			SELECT * FROM employees WHERE status != 'deleted' ORDER BY full_name ASC
 		`).all();
 
+		const allRights = db.prepare(`
+			SELECT id, name FROM work_rights WHERE status = 'active' ORDER BY sort_order ASC, name ASC
+		`).all();
+
 		const workbook = new ExcelJS.Workbook();
 		const sheet = workbook.addWorksheet("Работники");
 
-		sheet.columns = [
+		const columns = [
 			{ header: "Фамилия", key: "last_name", width: 20 },
 			{ header: "Имя", key: "first_name", width: 15 },
 			{ header: "Отчество", key: "middle_name", width: 20 },
@@ -353,11 +357,21 @@ async function exportEmployeesToExcel(filePath) {
 			{ header: "Последняя оценка", key: "last_result", width: 15 }
 		];
 
+		allRights.forEach(r => {
+			columns.push({ header: r.name, key: `right_${r.id}`, width: 15 });
+		});
+
+		sheet.columns = columns;
 		sheet.getRow(1).font = { bold: true };
 		sheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
 		for (const r of rows) {
-			sheet.addRow({
+			const empRights = db.prepare(`
+				SELECT right_id FROM employee_rights WHERE employee_id = ? AND value = 1
+			`).all(r.id);
+			const rightsSet = new Set(empRights.map(er => er.right_id));
+
+			const rowData = {
 				last_name: r.last_name || "",
 				first_name: r.first_name || "",
 				middle_name: r.middle_name || "",
@@ -370,7 +384,13 @@ async function exportEmployeesToExcel(filePath) {
 				next_check_date: r.next_check_date ? r.next_check_date.split("-").reverse().join(".") : "",
 				check_period_years: r.check_period_years || 1,
 				last_result: r.last_result || ""
+			};
+
+			allRights.forEach(right => {
+				rowData[`right_${right.id}`] = rightsSet.has(right.id) ? "да" : "";
 			});
+
+			sheet.addRow(rowData);
 		}
 
 		await workbook.xlsx.writeFile(filePath);

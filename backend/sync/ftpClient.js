@@ -177,13 +177,22 @@ async function diagnoseConnection(config) {
 		} else {
 			await new Promise((resolve, reject) => {
 				const s = net.connect(port, host, () => { s.destroy(); resolve(); });
-				s.setTimeout(5000, () => { s.destroy(); reject(new Error("Таймаут TCP")); });
+				s.setTimeout(5000, () => { s.destroy(); reject(new Error("Таймаут TCP (5 сек)")); });
 				s.on("error", reject);
 			});
 			results.push({ step: "TCP напрямую", ok: true, detail: `${host}:${port} доступен` });
 		}
 	} catch (e) {
-		results.push({ step: "TCP", ok: false, detail: `Ошибка: ${e.message}` });
+		const host = config.host;
+		const port = config.port || 21;
+		const msg = e.message || String(e);
+		let hint = "";
+		if (msg.includes("ECONNREFUSED")) hint = `Порт ${port} закрыт на ${host}. Проверьте, запущен ли FTP-сервер.`;
+		else if (msg.includes("ETIMEDOUT")) hint = `Таймаут подключения к ${host}:${port}. Проверьте фаервол/антивирус.`;
+		else if (msg.includes("ENOTFOUND")) hint = `Хост ${host} не найден. Проверьте DNS-настройки.`;
+		else if (msg.includes("CONNECT")) hint = "Прокси отклонил туннель. Проверьте тип прокси и доступ к FTP-серверу.";
+		else hint = `Проверьте: 1) FTP-сервер запущен, 2) порт ${port} верный, 3) фаервол не блокирует.`;
+		results.push({ step: "TCP", ok: false, detail: `${msg.slice(0, 100)} → ${hint}` });
 	}
 
 	try {

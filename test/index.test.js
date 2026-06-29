@@ -108,7 +108,8 @@ describe("dataSheetParser", () => {
 					headers.forEach((h, i) => cb({ value: h }, i + 1));
 				}
 			}),
-			eachRow: (cb) => {
+			eachRow: (opts, cb) => {
+				if (typeof opts === "function") { cb = opts; opts = {}; }
 				cb(mockRow(["Иванов", "Иван", "Иванович", "Участок", "Электромонтер", "ЭЧТ", "Опер.", "IV", "2026-01-01", "2027-01-01", "1"]), 2);
 			}
 		};
@@ -151,7 +152,8 @@ describe("dataSheetParser", () => {
 					headers.forEach((h, i) => cb({ value: h }, i + 1));
 				}
 			}),
-			eachRow: (cb) => {
+			eachRow: (opts, cb) => {
+				if (typeof opts === "function") { cb = opts; opts = {}; }
 				cb(mockRow([null, "Петров", "Петр", "Павлович", "Участок", "Электромонтер", "Опер.", "IV", "2026-01-01", "2027-01-01", "1", 1]), 2);
 			}
 		};
