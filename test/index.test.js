@@ -286,3 +286,40 @@ describe("ftpClient proxy", () => {
 		assert.equal(isNoProxy("host", null), false);
 	});
 });
+
+describe("HTTP tunnel status parsing", () => {
+	it("parses HTTP/1.1 200 status correctly", () => {
+		const statusLine = "HTTP/1.1 200 Connection established";
+		const match = statusLine.match(/HTTP\/\d\.\d\s+(\d+)/);
+		assert.ok(match);
+		assert.equal(match[1], "200");
+	});
+
+	it("rejects non-200 status", () => {
+		const statusLine = "HTTP/1.1 502 Bad Gateway";
+		const match = statusLine.match(/HTTP\/\d\.\d\s+(\d+)/);
+		assert.ok(match);
+		assert.notEqual(match[1], "200");
+	});
+
+	it("rejects malformed response", () => {
+		const statusLine = "Not HTTP at all";
+		const match = statusLine.match(/HTTP\/\d\.\d\s+(\d+)/);
+		assert.equal(match, null);
+	});
+});
+
+describe("protocol primary reason", () => {
+	it("buildProtocolPlaceholderMap includes previous fields", () => {
+		const { buildProtocolPlaceholderMap } = require("../backend/protocol/placeholderMap");
+		const map = buildProtocolPlaceholderMap({
+			protocol_number: 1,
+			check_date: "2026-06-15",
+			reason: "Первичная",
+			previous_check_date: "",
+			previous_result: ""
+		});
+		assert.equal(map["Дата_пред_проверки"], "");
+		assert.equal(map["пред_оценка"], "");
+	});
+});

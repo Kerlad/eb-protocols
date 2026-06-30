@@ -65,11 +65,13 @@ async function createHttpTunnel(proxy, targetHost, targetPort) {
 			socket.on("data", (chunk) => {
 				data += chunk.toString();
 				if (data.includes("\r\n\r\n")) {
-					if (data.includes("200")) {
+					const statusLine = data.split("\r\n")[0];
+					const match = statusLine.match(/HTTP\/\d\.\d\s+(\d+)/);
+					if (match && match[1] === "200") {
 						resolve(socket);
 					} else {
 						socket.destroy();
-						reject(new Error(`HTTP CONNECT failed: ${data.split("\r\n")[0]}`));
+						reject(new Error(`HTTP CONNECT: ${statusLine || "неверный ответ"}`));
 					}
 				}
 			});
@@ -205,7 +207,7 @@ async function diagnoseConnection(config) {
 	} catch (e) {
 		const msg = e.message || String(e);
 		let hint = "";
-		if (msg.includes("ECONNREFUSED")) hint = "Порт закрыт. Проверьте адрес и портFTP-сервера.";
+		if (msg.includes("ECONNREFUSED")) hint = "Порт закрыт. Проверьте адрес и порт FTP-сервера.";
 		else if (msg.includes("ETIMEDOUT")) hint = "Таймаут. Проверьте сетевое подключение и фаервол.";
 		else if (msg.includes("ENOTFOUND")) hint = "Хост не найден. Проверьте DNS.";
 		else if (msg.includes("530")) hint = "Ошибка аутентификации. Проверьте логин/пароль.";

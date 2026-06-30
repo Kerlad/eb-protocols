@@ -73,6 +73,8 @@ async function saveProtocol(form, options = {}) {
 
 		assertProtocolNumberAvailable(db, protocolYear, protocolNumber);
 
+		const isPrimary = form.reason === "Первичная";
+
 		const record = {
 			protocol_year: protocolYear,
 			protocol_number: protocolNumber,
@@ -103,7 +105,9 @@ async function saveProtocol(form, options = {}) {
 			member_2_name: form.member_2_name || null,
 			member_3_position: form.member_3_position || null,
 			member_3_name: form.member_3_name || null,
-			rights_text: form.rights_text || null
+			rights_text: form.rights_text || null,
+			previous_check_date: isPrimary ? null : (form.previous_check_date || null),
+			previous_result: isPrimary ? null : (form.previous_result || null)
 		};
 
 		const placeholderMap = buildProtocolPlaceholderMap(record);

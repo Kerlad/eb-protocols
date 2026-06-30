@@ -2,12 +2,22 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const ftpClient = require("./ftpClient");
+const sftpClient = require("./sftpClient");
 const { compareDbState } = require("./conflictDetector");
 const { createLocalBackup } = require("./backupService");
 const syncRepository = require("../db/repositories/syncRepository");
 
 const REMOTE_DB_NAME = "eb_protocols.db";
 const REMOTE_META_NAME = "eb_protocols.meta.json";
+
+function getTransport(config) {
+	const proxy = config._proxyInfo;
+	const transport = config.transport || "auto";
+	if (transport === "sftp") return sftpClient;
+	if (transport === "ftp") return ftpClient;
+	if (proxy) return sftpClient;
+	return ftpClient;
+}
 
 function deviceInfo() {
 	return {
@@ -66,12 +76,13 @@ async function uploadDb(options) {
 	const { db, config, dbPath, tempDir } = options;
 	const localMeta = buildLocalMeta(db);
 	const metaPath = path.join(tempDir || os.tmpdir(), `local_${Date.now()}.meta.json`);
+	const transport = getTransport(config);
 
 	fs.writeFileSync(metaPath, JSON.stringify(localMeta, null, 2), "utf8");
 
 	try {
-		await ftpClient.uploadFile(config, dbPath, REMOTE_DB_NAME);
-		await ftpClient.uploadFile(config, metaPath, REMOTE_META_NAME);
+		await transport.uploadFile(config, dbPath, REMOTE_DB_NAME);
+		await transport.uploadFile(config, metaPath, REMOTE_META_NAME);
 	} finally {
 		try { fs.unlinkSync(metaPath); } catch (e) { /* ignore */ }
 	}
@@ -86,23 +97,24 @@ async function uploadDb(options) {
 		sync_error: null
 	});
 
-	return { ok: true, direction: "upload", meta: localMeta };
+	return { ok: true, direction: "upload", meta: localMeta, transport: transport === sftpClient ? "SFTP" : "FTP" };
 }
 
 async function downloadDb(options) {
 	const { db, config, dbPath, backupsDir } = options;
+	const transport = getTransport(config);
 
 	if (fs.existsSync(dbPath)) {
 		createLocalBackup({ dbPath, backupsDir, reason: "before_download" });
 	}
 
-	const exists = await ftpClient.fileExists(config, REMOTE_DB_NAME);
+	const exists = await transport.fileExists(config, REMOTE_DB_NAME);
 	if (!exists) {
 		throw new Error("На сервере нет файла базы данных");
 	}
 
 	fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-	await ftpClient.downloadFile(config, REMOTE_DB_NAME, dbPath);
+	await transport.downloadFile(config, REMOTE_DB_NAME, dbPath);
 
 	const { openDb } = require("../db/connection");
 	const freshDb = openDb();
