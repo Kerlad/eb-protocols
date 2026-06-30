@@ -176,6 +176,10 @@ function registerIpc() {
 		withDb((db) => journalRepository.getJournalStatsByYear(db, year || new Date().getFullYear()))
 	);
 
+	ipcMain.handle("journal:getLastByEmployee", (event, employeeId) =>
+		withDb((db) => journalRepository.getLastByEmployeeId(db, employeeId))
+	);
+
 	ipcMain.handle("journal:delete", (event, id) =>
 		withDb((db) => {
 			const result = journalRepository.deleteJournalRecord(db, id);

@@ -1126,7 +1126,7 @@ body{background:linear-gradient(180deg,#f6f9fc 0%,#fff 38%);}
 .status{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700}.status:before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}.ok{background:#ecfdf5;color:var(--ok)}.warn{background:#fff7e6;color:var(--warn)}.bad{background:#fff0f0;color:var(--danger)}.neutral{background:#f2f4f7;color:#667085}.blue{background:#eef6ff;color:#1167b1}
 .worker-card{display:grid;grid-template-columns:64px 1fr;gap:14px;align-items:center}.avatar{width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,#e6f2ff,#c4dcff);display:grid;place-items:center;color:#1459a3;font-weight:800;font-size:22px}.meta-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}.meta{padding:10px;border-radius:12px;background:#f8fafc;border:1px solid var(--notion-border-soft)}.meta span{display:block;color:var(--muted);font-size:12px}.meta b{font-size:14px}
 .rights{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.right-item{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;background:#f8fafc;border:1px solid var(--notion-border-soft);border-radius:10px;font-size:13px}.right-item label{font-weight:500;margin:0;font-size:13px}.actions-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}.preview{font-family:Georgia,'Times New Roman',serif;background:#fff;border:1px solid #e4e7ec;border-radius:16px;padding:22px;min-height:520px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.7)}.preview h3{text-align:center;font-size:15px;text-transform:uppercase;line-height:1.35}.preview p{margin:7px 0}.line{border-bottom:1px solid #111;display:inline-block;min-width:150px;padding:0 8px;text-align:center}.muted{color:var(--muted)}
-table.compact th, table.compact td{font-size:13px;padding:10px 12px}.table-toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}.filters{display:flex;gap:8px;flex-wrap:wrap}.calendar{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.month{padding:14px;border-radius:16px;border:1px solid var(--notion-border-soft);background:#fff}.month h4{margin:0 0 10px}.month-row{display:flex;justify-content:space-between;border-top:1px solid var(--notion-border-soft);padding:8px 0;font-size:13px}.month-row:first-of-type{border-top:0}.section-divider{height:1px;background:var(--notion-border-soft);margin:16px 0}.mini-chart{height:110px;display:flex;align-items:flex-end;gap:8px;padding:10px 0}.mini-bar{flex:1;background:linear-gradient(180deg,#5eb2ff,#176dcc);border-radius:8px 8px 2px 2px;min-height:18px;position:relative}.mini-bar span{position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--muted)}
+table.compact th, table.compact td{font-size:13px;padding:10px 12px;text-align:center}.table-toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}.filters{display:flex;gap:8px;flex-wrap:wrap}.calendar{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.month{padding:14px;border-radius:16px;border:1px solid var(--notion-border-soft);background:#fff}.month h4{margin:0 0 10px}.month-row{display:flex;justify-content:space-between;border-top:1px solid var(--notion-border-soft);padding:8px 0;font-size:13px}.month-row:first-of-type{border-top:0}.section-divider{height:1px;background:var(--notion-border-soft);margin:16px 0}.mini-chart{height:110px;display:flex;align-items:flex-end;gap:8px;padding:10px 0}.mini-bar{flex:1;background:linear-gradient(180deg,#5eb2ff,#176dcc);border-radius:8px 8px 2px 2px;min-height:18px;position:relative}.mini-bar span{position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--muted)}
 .toast{position:fixed;right:24px;bottom:24px;padding:14px 16px;border-radius:14px;background:#102033;color:#fff;box-shadow:0 18px 44px rgba(16,32,51,.28);display:none}.toast.show{display:block}.modal-backdrop{position:fixed;inset:0;background:rgba(16,32,51,.38);display:none;align-items:center;justify-content:center;padding:24px;z-index:50;backdrop-filter:blur(4px)}.modal-backdrop.active{display:flex}.modal{background:var(--app-panel,#fff);color:var(--notion-text);border-radius:22px;max-width:760px;width:100%;box-shadow:0 30px 80px rgba(16,32,51,.28);padding:20px;max-height:90vh;overflow-y:auto}.modal-head{display:flex;justify-content:space-between;align-items:start;gap:16px}.modal-head h3{margin:0}.modal-list{display:grid;gap:10px;margin-top:14px}.choice{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:13px 14px;border:1px solid var(--notion-border);border-radius:14px;cursor:pointer}.choice:hover{background:#f6f9fc;border-color:#94c5f4}
 @media (max-width:1200px){.app{grid-template-columns:1fr}.sidebar{position:relative;height:auto}.nav{display:grid;grid-template-columns:repeat(3,1fr)}.grid-2,.grid-3,.calendar{grid-template-columns:1fr}.content{padding:22px}.span-3,.span-4,.span-5,.span-6,.span-8{grid-column:span 12}}
 
@@ -1166,7 +1166,7 @@ html[data-theme="dracula"]{
 }
 body{background:var(--app-bg)!important;color:var(--notion-text)!important;}
 .sidebar{background:linear-gradient(180deg,var(--app-sidebar-1),var(--app-sidebar-2))!important;}
-.panel,.notion-card,.notion-stat,.month,.modal,.suggest{background:var(--app-panel)!important;color:var(--notion-text)!important;border-color:var(--notion-border)!important;}
+.panel,.notion-card,.month,.modal,.suggest{background:var(--app-panel)!important;color:var(--notion-text)!important;border-color:var(--notion-border)!important}.notion-stat{background:var(--app-panel)!important;color:var(--notion-text)!important}
 .panel h1,.panel h2,.panel h3,.panel h4,.notion-stat-value,.notion-stat-label,.notion-card h3,.month h4{color:var(--notion-text)!important;}
 input,select,textarea{background:var(--app-input)!important;color:var(--notion-text)!important;border-color:var(--notion-border)!important;}
 input::placeholder,textarea::placeholder{color:var(--notion-text-faint)!important;}
@@ -1292,7 +1292,7 @@ main.content,
       </div>
       <div class="grid-2" style="margin-top:18px">
         <div class="panel"><h3>Быстрое создание протокола</h3><p class="muted">Введите фамилию — программа подставит ФИО, место работы, должность, группу, права и дату предыдущей проверки.</p><div class="form-grid"><div class="field span-8 search-box"><label>Фамилия / ФИО</label><input id="quickSearch" placeholder="Например: Иванов" oninput="searchWorker(this.value, 'quick')"><div id="quickSuggest" class="suggest"></div></div><div class="field span-4"><label>&nbsp;</label><button onclick="go('protocol')">Открыть форму</button></div></div><div class="section-divider"></div><div class="notion-flow"><div class="notion-flow-step"><strong>1. Поиск:</strong><span>Фамилия или ФИО</span></div><div class="notion-flow-step"><strong>2. Автозаполнение:</strong><span>Данные из БД</span></div><div class="notion-flow-step"><strong>3. DOCX:</strong><span>Файл + журнал</span></div></div></div>
-        <div class="panel"><h3>Проверки по месяцам</h3><div class="mini-chart" id="dashChart"></div><table class="compact"><thead><tr><th>Статус</th><th>Количество</th><th>Действие</th></tr></thead><tbody><tr><td><span class="status bad">Просрочено / Просрочено*</span></td><td id="dashTableOverdue">—</td><td><button class="ghost" style="padding:3px 8px;font-size:12px" onclick="showOverdueModal()">Сформировать график</button></td></tr><tr><td><span class="status warn">Скоро</span></td><td id="dashTableUpcoming">—</td><td><button class="ghost" style="padding:3px 8px;font-size:12px" onclick="showUpcomingModal()">Сформировать график</button></td></tr><tr><td><span class="status ok">Актуально</span></td><td id="dashTableActual">—</td><td>Контроль</td></tr></tbody></table></div>
+        <div class="panel"><h3>Проверки по месяцам</h3><div class="mini-chart" id="dashChart"></div><table class="compact"><thead><tr><th>Статус</th><th>Количество</th><th>Действие</th></tr></thead><tbody><tr><td><span class="status bad">Просрочено</span></td><td id="dashTableOverdue">—</td><td><button class="ghost" style="padding:3px 8px;font-size:12px" onclick="showOverdueModal()">Сформировать график</button></td></tr><tr><td><span class="status warn">Скоро</span></td><td id="dashTableUpcoming">—</td><td><button class="ghost" style="padding:3px 8px;font-size:12px" onclick="showUpcomingModal()">Сформировать график</button></td></tr><tr><td><span class="status ok">Актуально</span></td><td id="dashTableActual">—</td><td>Контроль</td></tr></tbody></table></div>
       </div>
     </section>
 
@@ -1339,7 +1339,17 @@ main.content,
 
           <div class="protocol-form-title" id="proto-3"><h3>3. Проверяемый</h3><span class="status blue">данные работника</span></div>
           <div id="selectedWorker" class="worker-card"><div class="avatar">?</div><div><b>Работник не выбран</b><p class="muted" style="margin:4px 0 0">Введите фамилию для автоподстановки данных.</p></div></div>
-          <div class="meta-grid"><div class="meta"><span>Место работы</span><b id="mw">—</b></div><div class="meta"><span>Должность</span><b id="mp">—</b></div><div class="meta"><span>Группа</span><b id="mg">—</b></div><div class="meta"><span>Пред. проверка</span><b id="mlast">—</b></div><div class="meta"><span>Периодичность</span><b id="mperiod">—</b></div><div class="meta"><span>След. проверка</span><b id="mnext">—</b></div></div>
+          <div class="meta-grid" style="grid-template-columns:repeat(4,1fr)">
+            <div class="meta"><span>Место работы</span><b id="mw">—</b></div>
+            <div class="meta"><span>Должность</span><b id="mp">—</b></div>
+            <div class="meta"><span>Группа</span><b id="mg">—</b></div>
+            <div class="meta"><span>Периодичность</span><b id="mperiod">—</b></div>
+          </div>
+          <div class="form-grid" style="margin-top:14px">
+            <div class="field span-4"><label>Пред. дата проверки</label><input id="previousMarkDate" type="date" onchange="previewProtocol()"></div>
+            <div class="field span-4"><label>Предыдущая оценка</label><select id="previousMark" onchange="previewProtocol()"><option value="уд">уд</option><option value="хор">хор</option><option value="отл">отл</option><option value="неуд">неуд</option></select></div>
+            <div class="field span-4"><label>Пред. группа</span><select id="previousGroup" onchange="previewProtocol()"><option>II</option><option>III</option><option selected>IV</option><option>V</option></select></div>
+          </div>
 
           <div class="protocol-form-title" id="proto-4"><h3>4. Нормативные документы и результаты</h3><span class="status blue">оценки: пусто / Отл / Хор / Уд / Неуд</span></div>
           <div class="form-grid">
@@ -1353,7 +1363,6 @@ main.content,
             <div class="field span-3"><label>Прод.дублирования</label><input id="duplicateDuration" placeholder="—" oninput="previewProtocol()"></div>
             <div class="field span-3"><label>Напряжение ЭУ</label><select id="voltageCategory" onchange="previewProtocol()"><option></option><option selected>до и свыше 1000В</option><option>до 1000В</option><option>свыше 1000В</option></select></div>
             <div class="field span-6"><label>Категория персонала</label><select id="personnelCategory" onchange="previewProtocol()"><option></option><option selected>Административно-технический</option><option>Оперативно-ремонтный</option><option>Оперативный</option><option>Ремонтный</option><option>Диспетчерский</option><option>Инспектирующий</option></select></div>
-            <div class="field span-6"><label>Предыдущая оценка / группа</label><input id="previousMark" value="V группа по ЭБ, Уд" oninput="previewProtocol()"></div>
           </div>
           <div class="section-divider"></div><h3 id="proto-5">5. Права работ</h3><div id="rightsBox" class="rights"></div>
         </div>
@@ -1505,7 +1514,7 @@ main.content,
           </div>
           <div class="section-divider"></div>
           <h3>Версия</h3>
-          <p><span class="status blue">v0.9.6</span></p>
+          <p><span class="status blue">v0.9.8</span></p>
           <p class="muted" style="margin-top:8px">Последнее обновление: июнь 2026 г.</p>
           <div class="section-divider"></div>
           <h3>Лицензия</h3>
@@ -1704,7 +1713,7 @@ function themedConfirm(title,message,inputPlaceholder){
 return new Promise(resolve=>{
 const modal=document.getElementById('confirmModal');
 document.getElementById('confirmTitle').textContent=title;
-document.getElementById('confirmMessage').textContent=message;
+document.getElementById('confirmMessage').innerHTML=message;
 const inputWrap=document.getElementById('confirmInputWrap');
 const input=document.getElementById('confirmInput');
 if(inputPlaceholder){inputWrap.style.display='block';input.value='';input.placeholder=inputPlaceholder;}else{inputWrap.style.display='none';}
@@ -1718,12 +1727,15 @@ else{resolve(ok);}
 });
 }
 function showScheduleMonth(monthName,list){
+const sorted=list.slice().sort((a,b)=>(a.next||'').localeCompare(b.next||''));
 const modal=document.getElementById('scheduleModal');
 document.getElementById('scheduleModalTitle').textContent=monthName+' — '+list.length+' чел.';
 const body=document.getElementById('scheduleModalBody');
-body.innerHTML=list.length?list.map(w=>{
+body.innerHTML=sorted.length?
+`<div style="display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 12px;border-bottom:2px solid var(--notion-border);font-weight:700;font-size:13px"><span>Работник</span><span>Дата проверки</span></div>`+
+sorted.map(w=>{
 const statusClass=w.status==='bad'?'bad':w.status==='warn'?'warn':'ok';
-return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid var(--notion-border-soft);border-radius:12px"><div><b style="font-size:14px">${w.fio}</b><div style="font-size:12px;color:var(--muted);margin-top:2px">${w.work} · ${w.pos||''}</div></div><span class="status ${statusClass}">${fmt(w.next)}</span></div>`;
+return `<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b style="font-size:14px">${w.fio}</b><div style="font-size:12px;color:var(--muted);margin-top:2px">${w.work} · ${w.pos||''}</div></div><span class="status ${statusClass}">${fmt(w.next)}</span></div>`;
 }).join(''):'<div class="muted" style="padding:12px 0">Нет проверок в этом месяце</div>';
 modal.classList.add('active');
 }
@@ -1740,9 +1752,16 @@ const fio=w?w.fio:'выберите работника';
 const no=v('protocolNo','1'),cd=fmt(v('checkDate')),nd=fmt(v('nextDate'));
 const reason=v('reasonSelect',''),commission=v('commissionName',''),group=v('groupSelect','');
 const eb=v('ebMark',''),ot=v('otMark',''),pb=v('pbMark',''),other=v('otherMark',''),mark=v('finalMark','');
-const prev=v('previousMark',w?`${w.group} группа по ЭБ, Уд`:'');
+const isPrimary=reason==='Первичная';
+const prevMark=isPrimary?'':v('previousMark','уд');
+const prevGrp=v('previousGroup',w?w.group:'III');
+const prevDate=isPrimary?'':fmt(v('previousMarkDate',''));
+const prev=prevMark?`${prevGrp} группа по ЭБ, ${prevMark}`:'';
+const prevDateDisp=prevDate||'—';
 const wp=w?w.work:'—',pos=w?w.pos:'—',lc=w?fmt(w.lastCheck):'—';
 const cat=v('personnelCategory',''),volt=v('voltageCategory',''),dup=v('duplicateDuration',''),inst=v('instructionsText','');
+const rightsText=protocolRightsText();
+const rightsSuffix=rightsText&&rightsText!=='—'?`, с правами ${rightsText}`:'';
 const ch=`${v('chairmanPosition','')}${v('chairmanPosition','')&&v('chairmanName','')?', ':''}${v('chairmanName','')}`;
 const m1=`${v('member1Position','')}${v('member1Position','')&&v('member1Name','')?', ':''}${v('member1Name','')}`;
 const m2=`${v('member2Position','')}${v('member2Position','')&&v('member2Name','')?', ':''}${v('member2Name','')}`;
@@ -1750,7 +1769,7 @@ const m3=`${v('member3Position','')}${v('member3Position','')&&v('member3Name','
 const sf=protocolFioShort(fio);
 const el=document.getElementById('docPreview');
 if(!el)return;
-el.innerHTML=`<div class="proto-title">ПРОТОКОЛ N ${no}<br>ПРОВЕРКИ ЗНАНИЙ ПРАВИЛ РАБОТЫ В ЭЛЕКТРОУСТАНОВКАХ</div><p>Дата проверки: <span class="line">${cd}</span></p><p>Причина: <span class="line">${reason||'—'}</span></p><p>Комиссия <span class="line">${commission||'—'}</span></p><p>председатель: <span class="line">${ch||'—'}</span></p><p>члены:</p><p class="indent">${m1||'—'}</p><p class="indent">${m2||'—'}</p><p class="indent">${m3||'—'}</p><p>нормативные документы: <span class="line">${inst||'—'}</span></p><p><b>Проверяемый:</b></p><p>ФИО: <span class="line">${fio}</span></p><p>место работы: <span class="line">${wp}</span></p><p>должность: <span class="line">${pos}</span></p><p>пред. проверка: <span class="line">${lc}</span></p><p>оценка: <span class="line">${prev||'—'}</span></p><p><b>Результаты:</b></p><p>ЭБ: <span class="line">${eb||'—'}</span> | ОТ: <span class="line">${ot||'—'}</span> | ПБ: <span class="line">${pb||'—'}</span> | другие: <span class="line">${other||'—'}</span></p><p><b>Заключение:</b> оценка <span class="line">${mark||'—'}</span>, группа <span class="line">${group||'—'}</span>, допущен как <span class="line">${cat||'—'}</span>, права <span class="line">${protocolRightsText()}</span>, напряжение <span class="line">${volt||'—'}</span>, след. проверка <span class="line">${nd}</span></p>`;
+el.innerHTML=`<div class="proto-title">ПРОТОКОЛ N ${no}<br>ПРОВЕРКИ ЗНАНИЙ ПРАВИЛ РАБОТЫ В ЭЛЕКТРОУСТАНОВКАХ</div><p>Дата проверки: <span class="line">${cd}</span></p><p>Причина: <span class="line">${reason||'—'}</span></p><p>Комиссия <span class="line">${commission||'—'}</span></p><p>председатель: <span class="line">${ch||'—'}</span></p><p>члены:</p><p class="indent">${m1||'—'}</p><p class="indent">${m2||'—'}</p><p class="indent">${m3||'—'}</p><p>нормативные документы: <span class="line">${inst||'—'}</span></p><p><b>Проверяемый:</b></p><p>ФИО: <span class="line">${fio}</span></p><p>место работы: <span class="line">${wp}</span></p><p>должность: <span class="line">${pos}</span></p><p>пред. проверка: <span class="line">${prevDateDisp}</span></p><p>оценка: <span class="line">${prev||'—'}</span></p><p><b>Результаты:</b></p><p>ЭБ: <span class="line">${eb||'—'}</span> | ОТ: <span class="line">${ot||'—'}</span> | ПБ: <span class="line">${pb||'—'}</span> | другие: <span class="line">${other||'—'}</span></p><p><b>Заключение:</b> оценка <span class="line">${mark||'—'}</span>, группа <span class="line">${group||'—'}</span>, допущен как <span class="line">${cat||'—'}</span>${rightsSuffix}, напряжение <span class="line">${volt||'—'}</span>, след. проверка <span class="line">${nd}</span></p>`;
 }
 renderRights();calcNextDate();
 </script>

@@ -144,7 +144,29 @@
 		if (w.group) setVal("groupSelect", w.group);
 		if (w.knowledge_scope_code) setVal("knowledgeScope", w.knowledge_scope_code);
 		if (w.personnel_category) setVal("personnelCategory", w.personnel_category);
-		if (w.last_result) setVal("previousMark", `${w.group} группа по ЭБ, ${w.last_result}`);
+
+		// Предыдущая оценка — прямой запрос к БД по employee_id
+		let prevResult = "уд";
+		let prevGroup = w.group || "III";
+		let prevDate = w.lastCheck || "";
+		if (w.id) {
+			try {
+				const entry = await api.journal.getLastByEmployee(w.id);
+				if (entry && entry.final_result) {
+					prevResult = entry.final_result;
+				}
+				if (entry && entry.electrical_safety_group) {
+					prevGroup = entry.electrical_safety_group;
+				}
+				if (entry && entry.check_date) {
+					prevDate = entry.check_date;
+				}
+			} catch (e) {}
+		}
+		setVal("previousMarkDate", prevDate);
+		setVal("previousMark", prevResult);
+		setVal("previousGroup", prevGroup);
+
 		if (typeof window.renderRights === "function") window.renderRights();
 		if (typeof window.applyKnowledgeScope === "function" && w.knowledge_scope_code) window.applyKnowledgeScope();
 		if (typeof window.calcNextDate === "function") window.calcNextDate();
@@ -177,6 +199,9 @@
 			member_1_position: getVal("member1Position", ""), member_1_name: getVal("member1Name", ""),
 			member_2_position: getVal("member2Position", ""), member_2_name: getVal("member2Name", ""),
 			member_3_position: getVal("member3Position", ""), member_3_name: getVal("member3Name", ""),
+			previous_check_date: getVal("reasonSelect") === "Первичная" ? "" : (getVal("previousMarkDate", "") || w.lastCheck || ""),
+			previous_result: getVal("reasonSelect") === "Первичная" ? "" : getVal("previousMark", "уд"),
+			previous_group: getVal("reasonSelect") === "Первичная" ? "" : getVal("previousGroup", w.group || "III"),
 			rights_text: collectRightsText()
 		};
 	}
@@ -686,9 +711,9 @@
 		try {
 			const rows = await api.employees.listAll();
 			const today = new Date().toISOString().slice(0, 10);
-			const list = (rows || []).map(mapEmployee).filter(w => w && (w.status === "bad" || w.status === "bad_star"));
+			const list = (rows || []).map(mapEmployee).filter(w => w && w.next && w.next < today);
 			const body = list.length
-				? `<div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)}</div></div><span class="status ${w.status}">${w.status === "bad_star" ? "Просрочено*" : "Просрочено"}</span></div>`).join("")}</div>`
+				? `<div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)}</div></div><span class="status bad">Просрочено</span></div>`).join("")}</div>`
 				: '<div class="muted" style="padding:16px 0">Нет просроченных работников</div>';
 			await themedConfirm(`Просрочено — ${list.length} чел.`, body);
 		} catch (e) { toast("Ошибка: " + e.message); }

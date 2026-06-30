@@ -93,6 +93,16 @@ function deleteJournalRecord(db, id) {
 	};
 }
 
+function getLastByEmployeeId(db, employeeId) {
+	return db.prepare(`
+		SELECT final_result, electrical_safety_group, check_date
+		FROM protocol_journal
+		WHERE employee_id = ?
+		ORDER BY check_date DESC, protocol_number DESC
+		LIMIT 1
+	`).get(employeeId);
+}
+
 module.exports = {
 	getProtocolYear,
 	getNextProtocolNumber,
@@ -100,5 +110,6 @@ module.exports = {
 	getJournalStatsByYear,
 	getMaxProtocolNumbersByYear,
 	listJournal,
-	deleteJournalRecord
+	deleteJournalRecord,
+	getLastByEmployeeId
 };
