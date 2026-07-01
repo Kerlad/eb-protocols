@@ -701,7 +701,7 @@
 			const in30Str = in30.toISOString().slice(0, 10);
 			const list = (rows || []).map(mapEmployee).filter(w => w && w.next && w.next >= todayStr && w.next <= in30Str);
 			const body = list.length
-				? `<div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)}</div></div><span class="status warn">${fmt(w.next)}</span></div>`).join("")}</div>`
+				? `<div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)} · ${esc(w.pos)}</div></div><span class="status warn">${fmt(w.next)}</span></div>`).join("")}</div><div style="margin-top:12px;text-align:right"><button class="ghost" style="padding:6px 14px;font-size:13px" onclick="document.getElementById('scheduleModal').classList.remove('active');exportScheduleExcel()">Экспорт в Excel</button></div>`
 				: '<div class="muted" style="padding:16px 0">Нет работников со статусом «Скоро»</div>';
 			await themedConfirm(`Скоро — ${list.length} чел.`, body);
 		} catch (e) { toast("Ошибка: " + e.message); }
