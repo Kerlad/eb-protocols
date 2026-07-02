@@ -1,4 +1,4 @@
-const { describe, it } = require("node:test");
+const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 
 describe("protocolNumbering", () => {
@@ -42,6 +42,25 @@ describe("placeholderMap", () => {
 		assert.equal(map["Причина"], "Очередная");
 		assert.equal(map["ФИО"], "Петров П.П.");
 		assert.equal(map["Объем_знаний"], "ЭЧТ");
+	});
+
+	it("maps instructions_text to инструкции placeholder", () => {
+		const form = {
+			protocol_number: 137,
+			check_date: "2026-06-22",
+			instructions_text: "ПТЭЭП; ПОТЭУ; Правила № 123"
+		};
+		const map = buildProtocolPlaceholderMap(form);
+		assert.equal(map["инструкции"], "ПТЭЭП; ПОТЭУ; Правила № 123");
+	});
+
+	it("defaults instructions_text to empty string when missing", () => {
+		const form = {
+			protocol_number: 137,
+			check_date: "2026-06-22"
+		};
+		const map = buildProtocolPlaceholderMap(form);
+		assert.equal(map["инструкции"], "");
 	});
 });
 
@@ -321,5 +340,567 @@ describe("protocol primary reason", () => {
 		});
 		assert.equal(map["Дата_пред_проверки"], "");
 		assert.equal(map["пред_оценка"], "");
+	});
+});
+
+describe("getProtocolDraft instructions_text", () => {
+	const { getProtocolDraft } = require("../backend/protocol/protocolService");
+
+	it("includes instructions_text in returned draft", () => {
+		const draft = getProtocolDraft({
+			check_date: "2026-07-01",
+			instructions_text: "Тестовые инструкции; ПТЭЭП"
+		});
+		assert.equal(draft.instructions_text, "Тестовые инструкции; ПТЭЭП");
+	});
+
+	it("defaults instructions_text to empty string when missing", () => {
+		const draft = getProtocolDraft({
+			check_date: "2026-07-01"
+		});
+		assert.equal(draft.instructions_text, "");
+	});
+});
+
+describe("exportUpcomingToExcel", () => {
+	const os = require("os");
+	const path = require("path");
+	const fs = require("fs");
+	const ExcelJS = require("exceljs");
+
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "eb-test-upcoming-"));
+	const dbDir = path.join(tmpDir, "data");
+	const dbPath = path.join(dbDir, "eb_protocols.db");
+
+	const cacheKeys = [
+		path.resolve(__dirname, "..", "backend", "db", "connection.js"),
+		path.resolve(__dirname, "..", "backend", "db", "initDb.js"),
+		path.resolve(__dirname, "..", "backend", "import", "excelImporter.js"),
+		path.resolve(__dirname, "..", "backend", "paths.js")
+	];
+
+	before(() => {
+		process.env.EB_DATA_DIR = dbDir;
+		for (const key of cacheKeys) delete require.cache[key];
+		fs.mkdirSync(dbDir, { recursive: true });
+
+		const Database = require("better-sqlite3-multiple-ciphers");
+		const db = new Database(dbPath);
+		const schemaPath = path.join(__dirname, "..", "backend", "db", "schema.sql");
+		const schema = fs.readFileSync(schemaPath, "utf8");
+		db.exec(schema);
+
+		db.prepare(`INSERT INTO sync_state (id, db_version, sync_revision, sync_status) VALUES (1, 'test', 0, 'test')`).run();
+
+		const in15 = new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10);
+		const in90 = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
+		const past = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+		const ts = new Date().toISOString();
+
+		const insert = db.prepare(`
+			INSERT INTO employees (last_name, first_name, full_name, position, electrical_safety_group,
+				personnel_category, knowledge_scope_code, last_check_date, next_check_date,
+				check_period_years, status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+		`);
+		insert.run("Иванов", "Иван", "Иванов Иван", "Электромонтер", "IV",
+			"Оперативно-ремонтный", "ЭЧТ", "2026-01-01", in15, 1, ts, ts);
+		insert.run("Петров", "Петр", "Петров Петр", "Инженер", "III",
+			"Административно-технический", "Для эл.мех", "2026-03-01", in90, 1, ts, ts);
+		insert.run("Сидоров", "Сидр", "Сидоров Сидр", "Мастер", "V",
+			"Ремонтный", "ЭЧТ", "2025-12-01", past, 1, ts, ts);
+		insert.run("Deleted", "User", "Deleted User", "Тест", "II",
+			"Оперативный", "Для эл.мех", "2026-01-01", in15, 1, ts, ts);
+		db.prepare("UPDATE employees SET status = 'deleted' WHERE full_name = 'Deleted User'").run();
+		insert.run("Смирнов", "Алексей", "Смирнов Алексей", "Электромеханик", "IV",
+			"Ремонтный", "ЭЧТ", "2026-02-15", in15, 1, ts, ts);
+
+		db.close();
+	});
+
+	after(() => {
+		delete process.env.EB_DATA_DIR;
+		for (const key of cacheKeys) delete require.cache[key];
+		try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+	});
+
+	it("exports only upcoming employees to Excel", async () => {
+		const { exportUpcomingToExcel } = require("../backend/import/excelImporter");
+		const outPath = path.join(tmpDir, "upcoming.xlsx");
+		const result = await exportUpcomingToExcel(outPath);
+
+		assert.equal(result.ok, true);
+		assert.equal(result.count, 2); // Иванов + Смирнов (deleted excluded, Петров >30d, Сидоров <today)
+
+		const workbook = new ExcelJS.Workbook();
+		await workbook.xlsx.readFile(outPath);
+		const sheet = workbook.getWorksheet("Скоро (30 дней)");
+		assert.ok(sheet);
+
+		assert.equal(sheet.getRow(1).getCell(1).value, "ФИО");
+		assert.equal(sheet.getRow(1).getCell(8).value, "Дата следующей проверки");
+
+		const row2 = sheet.getRow(2);
+		const row3 = sheet.getRow(3);
+		const names = [row2.getCell(1).value, row3.getCell(1).value].sort();
+		assert.deepEqual(names, ["Иванов Иван", "Смирнов Алексей"]);
+	});
+});
+
+describe("dashboard:stats overdue logic", () => {
+	const os = require("os");
+	const path = require("path");
+	const fs = require("fs");
+
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "eb-test-overdue-"));
+	const dbDir = path.join(tmpDir, "data");
+	const dbPath = path.join(dbDir, "eb_protocols.db");
+
+	const cacheKeys = [
+		path.resolve(__dirname, "..", "backend", "db", "connection.js"),
+		path.resolve(__dirname, "..", "backend", "paths.js")
+	];
+
+	before(() => {
+		process.env.EB_DATA_DIR = dbDir;
+		for (const key of cacheKeys) delete require.cache[key];
+		fs.mkdirSync(dbDir, { recursive: true });
+
+		const Database = require("better-sqlite3-multiple-ciphers");
+		const db = new Database(dbPath);
+		const schemaPath = path.join(__dirname, "..", "backend", "db", "schema.sql");
+		const schema = fs.readFileSync(schemaPath, "utf8");
+		db.exec(schema);
+
+		db.prepare(`INSERT INTO sync_state (id, db_version, sync_revision, sync_status) VALUES (1, 'test', 0, 'test')`).run();
+
+		const pastDate = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+		const futureDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+		const ts = new Date().toISOString();
+		const insert = db.prepare(`
+			INSERT INTO employees (last_name, first_name, full_name, next_check_date, status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'active', ?, ?)
+		`);
+		insert.run("Overdue", "User", "Overdue User", pastDate, ts, ts);
+		insert.run("Deferred", "User", "Deferred User", futureDate, ts, ts);
+		db.prepare("UPDATE employees SET note = 'DATE_DEFERRED' WHERE full_name = 'Deferred User'").run();
+		insert.run("Normal", "User", "Normal User", futureDate, ts, ts);
+
+		db.close();
+	});
+
+	after(() => {
+		delete process.env.EB_DATA_DIR;
+		for (const key of cacheKeys) delete require.cache[key];
+		try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+	});
+
+	it("counts overdue + DATE_DEFERRED as overdue", () => {
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try {
+			const now = new Date().toISOString().slice(0, 10);
+			const overdue = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND (next_check_date < ? OR note = 'DATE_DEFERRED')").get(now).c;
+			assert.equal(overdue, 2); // Overdue User (past date) + Deferred User (DATE_DEFERRED)
+		} finally {
+			db.close();
+		}
+	});
+});
+
+describe("computeNextCheckDate", () => {
+	const { computeNextCheckDate } = require("../backend/protocol/protocolService");
+
+	it("returns null for missing checkDate", () => {
+		assert.equal(computeNextCheckDate(null, 1), null);
+		assert.equal(computeNextCheckDate("", 1), null);
+	});
+
+	it("returns same day next year for 1-year period", () => {
+		assert.equal(computeNextCheckDate("2026-06-15", 1), "2027-06-15");
+		assert.equal(computeNextCheckDate("2026-01-01", 1), "2027-01-01");
+	});
+
+	it("returns same day +3 years for 3-year period", () => {
+		assert.equal(computeNextCheckDate("2026-06-15", 3), "2029-06-15");
+	});
+
+	it("defaults to 1 year when periodYears is missing", () => {
+		assert.equal(computeNextCheckDate("2026-06-15"), "2027-06-15");
+		assert.equal(computeNextCheckDate("2026-06-15", 0), "2027-06-15");
+	});
+});
+
+describe("docxGenerator utilities", () => {
+	const { safeFilePart, buildOutputFileName, validatePlaceholderMap, REQUIRED_PLACEHOLDERS } = require("../backend/protocol/docxGenerator");
+
+	it("safeFilePart removes invalid filename characters", () => {
+		assert.equal(safeFilePart("Иванов"), "Иванов");
+		assert.equal(safeFilePart("file:name?*.docx"), "file_name__.docx");
+		assert.equal(safeFilePart(""), "");
+	});
+
+	it("buildOutputFileName builds correct filename", () => {
+		assert.equal(buildOutputFileName({ protocol_number: 137, full_name_snapshot: "Иванов И.И." }), "Протокол_137_Иванов_И.И..docx");
+	});
+
+	it("buildOutputFileName handles missing fields", () => {
+		assert.ok(buildOutputFileName({}).includes("Протокол"));
+		assert.ok(buildOutputFileName({ protocol_number: 1 }).includes("1"));
+	});
+
+	it("validatePlaceholderMap returns empty when all required present", () => {
+		const data = {};
+		REQUIRED_PLACEHOLDERS.forEach(k => data[k] = "value");
+		assert.deepEqual(validatePlaceholderMap(data), []);
+	});
+
+	it("validatePlaceholderMap reports missing placeholders", () => {
+		const missing = validatePlaceholderMap({});
+		assert.ok(missing.length > 0);
+		assert.ok(missing.includes("Номер"));
+		assert.ok(missing.includes("ФИО"));
+	});
+});
+
+describe("full placeholderMap coverage", () => {
+	const { buildProtocolPlaceholderMap } = require("../backend/protocol/placeholderMap");
+
+	it("returns all 24 placeholders with correct values", () => {
+		const form = {
+			protocol_number: 137,
+			check_date: "2026-06-22",
+			reason: "Очередная",
+			commission_name: "Центральная ЭК",
+			chairman_position: "Главный инженер",
+			chairman_name: "Иванов И.И.",
+			member_1_position: "Зам. гл. инженера",
+			member_1_name: "Петров П.П.",
+			member_2_position: "Начальник ОТ",
+			member_2_name: "Сидоров С.С.",
+			member_3_position: "Инженер по ЭБ",
+			member_3_name: "Николаев Н.Н.",
+			full_name_snapshot: "Смирнов А.А.",
+			workplace_snapshot: "Участок №5",
+			position_snapshot: "Электромонтер",
+			previous_check_date: "2025-06-22",
+			previous_result: "уд",
+			result_eb: "Хор",
+			result_ot: "Уд",
+			result_pb: "Хор",
+			result_other: "Отл",
+			final_result: "Хор",
+			electrical_safety_group: "IV",
+			duplicate_duration: "2 недели",
+			personnel_category: "Оперативно-ремонтный",
+			rights_text: "производитель работ; член бригады",
+			voltage_category: "до и свыше 1000В",
+			next_check_date: "2027-06-22",
+			knowledge_scope_code: "ЭЧТ-4",
+			instructions_text: "ПТЭЭП; ПОТЭУ; Правила № 123"
+		};
+		const map = buildProtocolPlaceholderMap(form);
+		assert.equal(map["Номер"], "137");
+		assert.equal(map["Дата"], "22.06.2026");
+		assert.equal(map["Причина"], "Очередная");
+		assert.equal(map["Комиссия"], "Центральная ЭК");
+		assert.equal(map["Должность_ПК"], "Главный инженер");
+		assert.equal(map["ПК"], "Иванов И.И.");
+		assert.equal(map["Должность_ЧК_1"], "Зам. гл. инженера");
+		assert.equal(map["ЧК_1"], "Петров П.П.");
+		assert.equal(map["Должность_ЧК_2"], "Начальник ОТ");
+		assert.equal(map["ЧК_2"], "Сидоров С.С.");
+		assert.equal(map["Должность_ЧК_3"], "Инженер по ЭБ");
+		assert.equal(map["ЧК_3"], "Николаев Н.Н.");
+		assert.equal(map["ФИО"], "Смирнов А.А.");
+		assert.equal(map["Место_Работы"], "Участок №5");
+		assert.equal(map["Должность"], "Электромонтер");
+		assert.equal(map["Дата_пред_проверки"], "22.06.2025");
+		assert.equal(map["пред_оценка"], "уд");
+		assert.equal(map["оценка_ЭБ"], "Хор");
+		assert.equal(map["оценка_ОТ"], "Уд");
+		assert.equal(map["оценка_ПБ"], "Хор");
+		assert.equal(map["другие_ИОТ"], "Отл");
+		assert.equal(map["оценка"], "Хор");
+		assert.equal(map["Группа_ЭБ"], "IV");
+		assert.equal(map["Прод_Дублир"], "2 недели");
+		assert.equal(map["категория"], "Оперативно-ремонтный");
+		assert.equal(map["права"], "производитель работ; член бригады");
+		assert.equal(map["категория_ЭУ"], "до и свыше 1000В");
+		assert.equal(map["Объем_знаний"], "ЭЧТ-4");
+		assert.equal(map["След_Дата"], "22.06.2027");
+		assert.equal(map["инструкции"], "ПТЭЭП; ПОТЭУ; Правила № 123");
+		assert.equal(Object.keys(map).length, 30); // 30 keys
+	});
+});
+
+describe("exportScheduleToExcel", () => {
+	const os = require("os");
+	const path = require("path");
+	const fs = require("fs");
+	const ExcelJS = require("exceljs");
+
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "eb-test-schedule-"));
+	const dbDir = path.join(tmpDir, "data");
+	const cacheKeys = [
+		path.resolve(__dirname, "..", "backend", "db", "connection.js"),
+		path.resolve(__dirname, "..", "backend", "db", "initDb.js"),
+		path.resolve(__dirname, "..", "backend", "import", "excelImporter.js"),
+		path.resolve(__dirname, "..", "backend", "paths.js")
+	];
+
+	before(() => {
+		process.env.EB_DATA_DIR = dbDir;
+		for (const key of cacheKeys) delete require.cache[key];
+		fs.mkdirSync(dbDir, { recursive: true });
+
+		const Database = require("better-sqlite3-multiple-ciphers");
+		const db = new Database(path.join(dbDir, "eb_protocols.db"));
+		const schema = fs.readFileSync(path.join(__dirname, "..", "backend", "db", "schema.sql"), "utf8");
+		db.exec(schema);
+		db.prepare(`INSERT INTO sync_state (id, db_version, sync_revision, sync_status) VALUES (1, 'test', 0, 'test')`).run();
+
+		const ts = new Date().toISOString();
+		const insert = db.prepare(`INSERT INTO employees (last_name, first_name, full_name, workplace_name, position, electrical_safety_group, personnel_category, knowledge_scope_code, last_check_date, next_check_date, check_period_years, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`);
+		insert.run("Иванов", "Иван", "Иванов Иван", "Цех №1", "Электромонтер", "IV", "Оперативно-ремонтный", "ЭЧТ", "2026-01-01", "2026-06-15", 1, ts, ts);
+		insert.run("Петров", "Петр", "Петров Петр", "Цех №2", "Инженер", "III", "Административно-технический", "Для эл.мех", "2026-03-01", "2026-07-20", 1, ts, ts);
+		insert.run("Сидоров", "Сидр", "Сидоров Сидр", "Цех №3", "Мастер", "V", "Ремонтный", "ЭЧТ", "2025-12-01", "2026-08-10", 1, ts, ts);
+		db.close();
+	});
+
+	after(() => {
+		delete process.env.EB_DATA_DIR;
+		for (const key of cacheKeys) delete require.cache[key];
+		try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+	});
+
+	it("exports schedule with month grouping to Excel", async () => {
+		const { exportScheduleToExcel } = require("../backend/import/excelImporter");
+		const outPath = path.join(tmpDir, "schedule.xlsx");
+		const result = await exportScheduleToExcel(outPath, 2026);
+		assert.equal(result.ok, true);
+		assert.equal(result.count, 3);
+
+		const workbook = new ExcelJS.Workbook();
+		await workbook.xlsx.readFile(outPath);
+		const sheet = workbook.getWorksheet("График 2026");
+		assert.ok(sheet);
+
+		assert.equal(sheet.getRow(1).getCell(1).value, "ФИО");
+		assert.equal(sheet.getRow(1).getCell(8).value, "Дата следующей проверки");
+
+		const names = [];
+		sheet.eachRow((row, rowNum) => {
+			if (rowNum > 1 && !row.getCell(2).fill) names.push(row.getCell(1).value);
+		});
+		assert.ok(names.includes("Иванов Иван"));
+		assert.ok(names.includes("Петров Петр"));
+		assert.ok(names.includes("Сидоров Сидр"));
+	});
+});
+
+describe("exportJournalToExcel", () => {
+	const os = require("os");
+	const path = require("path");
+	const fs = require("fs");
+	const ExcelJS = require("exceljs");
+
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "eb-test-journal-"));
+	const dbDir = path.join(tmpDir, "data");
+	const cacheKeys = [
+		path.resolve(__dirname, "..", "backend", "db", "connection.js"),
+		path.resolve(__dirname, "..", "backend", "db", "initDb.js"),
+		path.resolve(__dirname, "..", "backend", "import", "excelImporter.js"),
+		path.resolve(__dirname, "..", "backend", "paths.js")
+	];
+
+	before(() => {
+		process.env.EB_DATA_DIR = dbDir;
+		for (const key of cacheKeys) delete require.cache[key];
+		fs.mkdirSync(dbDir, { recursive: true });
+
+		const Database = require("better-sqlite3-multiple-ciphers");
+		const db = new Database(path.join(dbDir, "eb_protocols.db"));
+		const schema = fs.readFileSync(path.join(__dirname, "..", "backend", "db", "schema.sql"), "utf8");
+		db.exec(schema);
+		db.prepare(`INSERT INTO sync_state (id, db_version, sync_revision, sync_status) VALUES (1, 'test', 0, 'test')`).run();
+
+		const ts = new Date().toISOString();
+		db.prepare(`INSERT INTO protocol_journal (protocol_year, protocol_number, full_name_snapshot, check_date, next_check_date, reason, electrical_safety_group, final_result, commission_name, chairman_name, workplace_snapshot, position_snapshot, knowledge_scope_code, personnel_category, rights_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+			2026, 1, "Иванов Иван", "2026-06-15", "2027-06-15", "Очередная", "IV", "Хор", "ЦЭК", "Иванов И.И.", "Цех №1", "Электромонтер", "ЭЧТ", "Оперативно-ремонтный", "право", ts, ts
+		);
+		db.prepare(`INSERT INTO protocol_journal (protocol_year, protocol_number, full_name_snapshot, check_date, next_check_date, reason, electrical_safety_group, final_result, commission_name, chairman_name, workplace_snapshot, position_snapshot, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+			2026, 2, "Петров Петр", "2026-07-20", "2027-07-20", "Внеочередная", "III", "Уд", "ЦЭК", "Иванов И.И.", "Цех №2", "Инженер", ts, ts
+		);
+		db.close();
+	});
+
+	after(() => {
+		delete process.env.EB_DATA_DIR;
+		for (const key of cacheKeys) delete require.cache[key];
+		try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+	});
+
+	it("exports journal to Excel", async () => {
+		const { exportJournalToExcel } = require("../backend/import/excelImporter");
+		const outPath = path.join(tmpDir, "journal.xlsx");
+		const result = await exportJournalToExcel(outPath);
+		assert.equal(result.ok, true);
+		assert.equal(result.count, 2);
+
+		const workbook = new ExcelJS.Workbook();
+		await workbook.xlsx.readFile(outPath);
+		const sheet = workbook.getWorksheet("Журнал проверок");
+		assert.ok(sheet);
+
+		assert.equal(sheet.getRow(1).getCell(1).value, "№ протокола");
+		assert.equal(sheet.getRow(1).getCell(5).value, "Место работы");
+
+		const names = [];
+		sheet.eachRow((row, rowNum) => {
+			if (rowNum > 1) names.push(row.getCell(4).value);
+		});
+		assert.deepEqual(names.sort(), ["Иванов Иван", "Петров Петр"]);
+	});
+});
+
+describe("exportEmployeesToExcel", () => {
+	const os = require("os");
+	const path = require("path");
+	const fs = require("fs");
+	const ExcelJS = require("exceljs");
+
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "eb-test-employees-"));
+	const dbDir = path.join(tmpDir, "data");
+	const cacheKeys = [
+		path.resolve(__dirname, "..", "backend", "db", "connection.js"),
+		path.resolve(__dirname, "..", "backend", "db", "initDb.js"),
+		path.resolve(__dirname, "..", "backend", "import", "excelImporter.js"),
+		path.resolve(__dirname, "..", "backend", "paths.js")
+	];
+
+	before(() => {
+		process.env.EB_DATA_DIR = dbDir;
+		for (const key of cacheKeys) delete require.cache[key];
+		fs.mkdirSync(dbDir, { recursive: true });
+
+		const Database = require("better-sqlite3-multiple-ciphers");
+		const db = new Database(path.join(dbDir, "eb_protocols.db"));
+		const schema = fs.readFileSync(path.join(__dirname, "..", "backend", "db", "schema.sql"), "utf8");
+		db.exec(schema);
+		db.prepare(`INSERT INTO sync_state (id, db_version, sync_revision, sync_status) VALUES (1, 'test', 0, 'test')`).run();
+
+		const ts = new Date().toISOString();
+		db.prepare(`INSERT INTO work_rights (id, name, protocol_text, sort_order, status, created_at, updated_at) VALUES (1, 'Право выдачи нарядов', 'выдача нарядов-допусков и распоряжений;', 1, 'active', ?, ?)`).run(ts, ts);
+		db.prepare(`INSERT INTO employees (id, last_name, first_name, full_name, workplace_name, position, electrical_safety_group, personnel_category, knowledge_scope_code, last_check_date, next_check_date, check_period_years, last_result, status, created_at, updated_at) VALUES (1, 'Иванов', 'Иван', 'Иванов Иван', 'Цех №1', 'Электромонтер', 'IV', 'Оперативно-ремонтный', 'ЭЧТ', '2026-01-01', '2027-01-01', 1, 'хор', 'active', ?, ?)`).run(ts, ts);
+		db.prepare(`INSERT INTO employee_rights (employee_id, right_id, value, created_at, updated_at) VALUES (1, 1, 1, ?, ?)`).run(ts, ts);
+		db.close();
+	});
+
+	after(() => {
+		delete process.env.EB_DATA_DIR;
+		for (const key of cacheKeys) delete require.cache[key];
+		try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+	});
+
+	it("exports employees with rights to Excel", async () => {
+		const { exportEmployeesToExcel } = require("../backend/import/excelImporter");
+		const outPath = path.join(tmpDir, "employees.xlsx");
+		const result = await exportEmployeesToExcel(outPath);
+		assert.equal(result.ok, true);
+		assert.equal(result.count, 1);
+
+		const workbook = new ExcelJS.Workbook();
+		await workbook.xlsx.readFile(outPath);
+		const sheet = workbook.getWorksheet("Работники");
+		assert.ok(sheet);
+
+		assert.equal(sheet.getRow(1).getCell(1).value, "Фамилия");
+		assert.equal(sheet.getRow(1).getCell(5).value, "Должность");
+	});
+});
+
+describe("importExcel end-to-end", () => {
+	const os = require("os");
+	const path = require("path");
+	const fs = require("fs");
+	const ExcelJS = require("exceljs");
+
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "eb-test-import-"));
+	const dbDir = path.join(tmpDir, "data");
+	const excelPath = path.join(tmpDir, "test_import.xlsx");
+	const cacheKeys = [
+		path.resolve(__dirname, "..", "backend", "db", "connection.js"),
+		path.resolve(__dirname, "..", "backend", "db", "initDb.js"),
+		path.resolve(__dirname, "..", "backend", "import", "excelImporter.js"),
+		path.resolve(__dirname, "..", "backend", "paths.js")
+	];
+
+	before(async () => {
+		process.env.EB_DATA_DIR = dbDir;
+		for (const key of cacheKeys) delete require.cache[key];
+		fs.mkdirSync(dbDir, { recursive: true });
+
+		// Create proper DB file so migrateFromLegacy() sees it exists and skips copying production DB
+		const Database = require("better-sqlite3-multiple-ciphers");
+		const preDb = new Database(path.join(dbDir, "eb_protocols.db"));
+		const schema = fs.readFileSync(path.join(__dirname, "..", "backend", "db", "schema.sql"), "utf8");
+		preDb.exec(schema);
+		preDb.prepare(`INSERT INTO sync_state (id, db_version, sync_revision, sync_status) VALUES (1, 'test', 0, 'test')`).run();
+		preDb.close();
+
+		const workbook = new ExcelJS.Workbook();
+		const sheet = workbook.addWorksheet("Data");
+
+		sheet.getRow(1).values = ["Фамилия", "Имя", "Отчество", "Место работы", "Должность", "Объем знаний", "Категория персонала", "Группа", "Дата проверки", "Дата след. проверки", "Периодичность", "Оперативные переключения", "Выдача нарядов"];
+		sheet.getRow(2).values = ["Иванов", "Иван", "Иванович", "Участок №1", "Электромонтер", "ЭЧТ", "Оперативно-ремонтный", "IV", new Date("2026-01-15"), new Date("2027-01-15"), 1, 1, "да"];
+		sheet.getRow(3).values = ["Петров", "Петр", "Петрович", "Участок №2", "Инженер", "Для эл.мех", "Административно-технический", "III", new Date("2026-03-01"), new Date("2027-03-01"), 1, "", ""];
+		sheet.getRow(4).values = ["", "Сидоров", "Сидр", "Сидорович", "Участок №3", "Мастер", "ЭЧТ", "Ремонтный", "V", new Date("2026-06-01"), new Date("2027-06-01"), 1, "", ""];
+
+		await workbook.xlsx.writeFile(excelPath);
+	});
+
+	after(() => {
+		delete process.env.EB_DATA_DIR;
+		for (const key of cacheKeys) delete require.cache[key];
+		try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+	});
+
+	it("imports Excel file and creates employees + rights in DB", async () => {
+		const { importExcel } = require("../backend/import/excelImporter");
+		const report = await importExcel(excelPath);
+
+		assert.equal(report.employeesCreated, 3);
+		assert.equal(report.employeesUpdated, 0);
+		assert.equal(report.employeeRights, 2); // 1st emp has 2 rights, 2nd has 0, 3rd has 0
+		assert.equal(report.workRights, 2); // 2 right columns detected
+
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try {
+			const total = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted'").get().c;
+			assert.equal(total, 3);
+
+			const ivanov = db.prepare("SELECT * FROM employees WHERE full_name = ?").get("Иванов Иван Иванович");
+			assert.ok(ivanov);
+			assert.equal(ivanov.position, "Электромонтер");
+			assert.equal(ivanov.electrical_safety_group, "IV");
+			assert.equal(ivanov.personnel_category, "Оперативно-ремонтный");
+
+			const rights = db.prepare(`SELECT wr.name FROM employee_rights er JOIN work_rights wr ON wr.id = er.right_id WHERE er.employee_id = ? AND er.value = 1`).all(ivanov.id);
+			const rightNames = rights.map(r => r.name).sort();
+			assert.deepEqual(rightNames, ["Выдача нарядов", "Оперативные переключения"]);
+
+			const petrov = db.prepare("SELECT * FROM employees WHERE full_name = ?").get("Петров Петр Петрович");
+			assert.ok(petrov);
+			assert.equal(petrov.position, "Инженер");
+			assert.equal(petrov.electrical_safety_group, "III");
+
+			const shiftedRow = db.prepare("SELECT * FROM employees WHERE full_name = ?").get("Сидоров Сидр Сидорович");
+			assert.ok(shiftedRow);
+			assert.equal(shiftedRow.workplace_name, "Участок №3");
+		} finally {
+			db.close();
+		}
 	});
 });

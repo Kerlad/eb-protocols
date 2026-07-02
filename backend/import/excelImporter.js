@@ -1,7 +1,7 @@
 const path = require("path");
+const fs = require("fs");
 const ExcelJS = require("exceljs");
 const { openDb } = require("../db/connection");
-const { initDb } = require("../db/initDb");
 const { parseDataSheet } = require("./dataSheetParser");
 const employeesRepository = require("../db/repositories/employeesRepository");
 const referencesRepository = require("../db/repositories/referencesRepository");
@@ -38,9 +38,9 @@ function normalizeDate(value) {
 }
 
 	async function importExcel(filePath) {
-	initDb();
-
 	const db = openDb();
+	const schemaPath = path.join(__dirname, "..", "db", "schema.sql");
+	db.exec(fs.readFileSync(schemaPath, "utf8"));
 	try {
 		const workbook = new ExcelJS.Workbook();
 		await workbook.xlsx.readFile(filePath);
@@ -441,10 +441,58 @@ async function createEmployeesTemplate(filePath) {
 	return { ok: true };
 }
 
+async function exportUpcomingToExcel(filePath) {
+	const db = openDb();
+	try {
+		const today = new Date().toISOString().slice(0, 10);
+		const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+		const employees = db.prepare(`
+			SELECT *
+			FROM employees
+			WHERE status != 'deleted'
+				AND next_check_date IS NOT NULL
+				AND next_check_date >= ? AND next_check_date <= ?
+			ORDER BY next_check_date ASC, full_name ASC
+		`).all(today, in30);
+
+		const workbook = new ExcelJS.Workbook();
+		const sheet = workbook.addWorksheet("Скоро (30 дней)");
+		sheet.columns = [
+			{ header: "ФИО", key: "full_name", width: 35 },
+			{ header: "Подразделение", key: "workplace", width: 20 },
+			{ header: "Должность", key: "position", width: 25 },
+			{ header: "Группа ЭБ", key: "safety_group", width: 12 },
+			{ header: "Категория", key: "category", width: 25 },
+			{ header: "Объем знаний", key: "scope", width: 15 },
+			{ header: "Дата последней проверки", key: "last_check", width: 18 },
+			{ header: "Дата следующей проверки", key: "next_check", width: 18 }
+		];
+		sheet.getRow(1).font = { bold: true };
+		sheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+		for (const emp of employees) {
+			sheet.addRow({
+				full_name: emp.full_name,
+				workplace: emp.workplace_name || emp.workplace_code || "",
+				position: emp.position || "",
+				safety_group: emp.electrical_safety_group || "",
+				category: emp.personnel_category || "",
+				scope: emp.knowledge_scope_code || "",
+				last_check: emp.last_check_date ? emp.last_check_date.split("-").reverse().join(".") : "",
+				next_check: emp.next_check_date ? emp.next_check_date.split("-").reverse().join(".") : ""
+			});
+		}
+		await workbook.xlsx.writeFile(filePath);
+		return { ok: true, count: employees.length };
+	} finally {
+		db.close();
+	}
+}
+
 module.exports = {
 	importExcel,
 	exportScheduleToExcel,
 	exportJournalToExcel,
 	exportEmployeesToExcel,
-	createEmployeesTemplate
+	createEmployeesTemplate,
+	exportUpcomingToExcel
 };

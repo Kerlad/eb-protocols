@@ -48,6 +48,7 @@ function getProtocolDraft(form) {
 			knowledge_scope_code: employee?.knowledge_scope_code || form.knowledge_scope_code || "",
 			previous_check_date: employee?.last_check_date || form.previous_check_date || "",
 			previous_result: employee?.last_result || form.previous_result || "",
+			instructions_text: form.instructions_text || "",
 			rights_text: rightsText
 		};
 	} finally {

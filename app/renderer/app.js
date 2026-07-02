@@ -568,14 +568,16 @@
 	async function renderJournal() {
 		const table = document.querySelector("#journal table");
 		if (!table) return;
+		const tbody = table.querySelector("tbody");
+		if (!tbody) return;
 		try {
 			const rows = await api.journal.list({});
-			if (!rows || !rows.length) { table.innerHTML = '<tr><td colspan="8" class="muted">Пока нет протоколов</td></tr>'; return; }
-			const tbody = table.querySelector("tbody") || table;
+			if (!rows || !rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="muted">Пока нет протоколов</td></tr>'; return; }
 			tbody.innerHTML = rows.map((r) => {
 				const docxLink = r.docx_path ? `<a href="#" style="color:var(--notion-blue);text-decoration:underline" onclick="openFile('${r.docx_path.replace(/\\/g, '\\\\')}')">DOCX</a>` : "—";
 				const reasonShort = (r.reason || "").includes("Внеоч") ? "Внеоч" : "Очер";
-				return `<tr><td style="text-align:center">${r.protocol_number}</td><td style="text-align:center">${esc(r.full_name_snapshot)}</td><td style="text-align:center;font-size:12px">${reasonShort}</td><td style="text-align:center">${fmt(r.check_date)}</td><td style="text-align:center">${esc(r.electrical_safety_group)}</td><td style="text-align:center">${esc(r.final_result)}</td><td style="text-align:center">${fmt(r.next_check_date)}</td><td style="text-align:center">${docxLink}</td></tr>`;
+				const fioArg = JSON.stringify(r.full_name_snapshot || "").replace(/"/g, "&quot;");
+				return `<tr><td style="text-align:center">${r.protocol_number}</td><td style="text-align:center">${esc(r.full_name_snapshot)}</td><td style="text-align:center;font-size:12px">${reasonShort}</td><td style="text-align:center">${fmt(r.check_date)}</td><td style="text-align:center">${esc(r.electrical_safety_group)}</td><td style="text-align:center">${esc(r.final_result)}</td><td style="text-align:center">${fmt(r.next_check_date)}</td><td style="text-align:center">${docxLink}</td><td style="text-align:center"><button class="ghost" style="padding:3px 8px;font-size:11px;color:var(--danger)" onclick="deleteJournalRecord(${r.id}, ${fioArg}, ${r.protocol_number})">Удалить</button></td></tr>`;
 			}).join("");
 		} catch (e) { console.warn("renderJournal:", e.message); }
 	}
@@ -701,7 +703,7 @@
 			const in30Str = in30.toISOString().slice(0, 10);
 			const list = (rows || []).map(mapEmployee).filter(w => w && w.next && w.next >= todayStr && w.next <= in30Str);
 			const body = list.length
-				? `<div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)} · ${esc(w.pos)}</div></div><span class="status warn">${fmt(w.next)}</span></div>`).join("")}</div><div style="margin-top:12px;text-align:right"><button class="ghost" style="padding:6px 14px;font-size:13px" onclick="document.getElementById('scheduleModal').classList.remove('active');exportScheduleExcel()">Экспорт в Excel</button></div>`
+				? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="ghost" style="padding:5px 12px;font-size:12px" onclick="exportUpcomingExcel()">Экспорт в Excel</button></div><div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)} · ${esc(w.pos)}</div></div><span class="status warn">${fmt(w.next)}</span></div>`).join("")}</div>`
 				: '<div class="muted" style="padding:16px 0">Нет работников со статусом «Скоро»</div>';
 			await themedConfirm(`Скоро — ${list.length} чел.`, body);
 		} catch (e) { toast("Ошибка: " + e.message); }
@@ -711,7 +713,7 @@
 		try {
 			const rows = await api.employees.listAll();
 			const today = new Date().toISOString().slice(0, 10);
-			const list = (rows || []).map(mapEmployee).filter(w => w && w.next && w.next < today);
+			const list = (rows || []).map(mapEmployee).filter(w => w && (w.status === 'bad' || w.status === 'bad_star'));
 			const body = list.length
 				? `<div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)}</div></div><span class="status bad">Просрочено</span></div>`).join("")}</div>`
 				: '<div class="muted" style="padding:16px 0">Нет просроченных работников</div>';
@@ -1097,6 +1099,20 @@
 			const res = await api.schedule.exportExcel(year);
 			if (res && res.ok) {
 				toast("График успешно экспортирован: " + res.filePath);
+			} else if (res && res.canceled) {
+				toast("Экспорт отменен");
+			}
+		} catch (e) {
+			toast("Ошибка экспорта: " + e.message);
+		}
+	};
+
+	window.exportUpcomingExcel = async function () {
+		toast("Экспорт списка «Скоро» (30 дней)...");
+		try {
+			const res = await api.employees.exportUpcomingExcel();
+			if (res && res.ok) {
+				toast("Список «Скоро» экспортирован: " + res.filePath);
 			} else if (res && res.canceled) {
 				toast("Экспорт отменен");
 			}

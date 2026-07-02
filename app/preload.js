@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("ebApi", {
 		update: (id, patch) => invoke("employees:update", id, patch),
 		delete: (id) => invoke("employees:delete", id),
 		exportExcel: () => invoke("employees:exportExcel"),
+		exportUpcomingExcel: () => invoke("employees:exportUpcomingExcel"),
 		createTemplate: () => invoke("employees:createTemplate")
 	},
 	references: {

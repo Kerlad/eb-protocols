@@ -422,6 +422,18 @@ function registerIpc() {
 		return { ok: true, filePath: result.filePath, count: report.count };
 	});
 
+	ipcMain.handle("employees:exportUpcomingExcel", async () => {
+		const result = await dialog.showSaveDialog(mainWindow, {
+			title: "Экспорт списка «Скоро» (30 дней)",
+			defaultPath: path.join(app.getPath("documents"), `Скоро_обучение_30дней_${new Date().getFullYear()}.xlsx`),
+			filters: [{ name: "Excel", extensions: ["xlsx"] }]
+		});
+		if (result.canceled || !result.filePath) return { canceled: true };
+		const { exportUpcomingToExcel } = require("../backend/import/excelImporter");
+		const report = await exportUpcomingToExcel(result.filePath);
+		return { ok: true, filePath: result.filePath, count: report.count };
+	});
+
 	ipcMain.handle("employees:createTemplate", async () => {
 		const result = await dialog.showSaveDialog(mainWindow, {
 			title: "Создать шаблон для импорта",
@@ -442,7 +454,7 @@ function registerIpc() {
 			const now = new Date().toISOString().slice(0, 10);
 			const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
 			const upcoming = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND next_check_date IS NOT NULL AND next_check_date >= ? AND next_check_date <= ?").get(now, in30).c;
-			const overdue = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND next_check_date IS NOT NULL AND next_check_date < ?").get(now).c;
+			const overdue = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND (next_check_date < ? OR note = 'DATE_DEFERRED')").get(now).c;
 			const actual = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND next_check_date IS NOT NULL AND next_check_date > ?").get(in30).c;
 			
 			const monthCounts = [];
