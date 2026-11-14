@@ -7,6 +7,7 @@ const employeesRepository = require("../db/repositories/employeesRepository");
 const referencesRepository = require("../db/repositories/referencesRepository");
 const syncRepository = require("../db/repositories/syncRepository");
 const { todayLocal, addDaysLocal, addYearsLocal } = require("../utils/dateUtils");
+const { defaultPeriodYears } = require("../utils/checkPeriod");
 
 function normalizeDate(value) {
 	if (!value) return null;
@@ -88,19 +89,30 @@ function normalizeDate(value) {
 
 			const employeeIdBySourceRow = new Map();
 
+			// T2.3: права строки нужны для периодичности по умолчанию
+			const rightNamesBySourceRow = new Map();
+			for (const link of data.employeeRights) {
+				if (!rightNamesBySourceRow.has(link.source_row)) rightNamesBySourceRow.set(link.source_row, []);
+				rightNamesBySourceRow.get(link.source_row).push(link.right_name);
+			}
+
 			for (const employee of data.employees) {
 				const lastCheck = normalizeDate(employee.last_check_date);
 				let nextCheck = normalizeDate(employee.next_check_date);
+				// T2.3: пустая колонка «Периодичность» — значение по категории и правам
+				const period = Number(employee.check_period_years)
+					|| defaultPeriodYears(employee.personnel_category, rightNamesBySourceRow.get(employee.source_row));
 
 				// T2.1: даты берутся из файла как есть; пустая остаётся null, просрочка не сдвигается
 				if (lastCheck && !nextCheck) {
-					nextCheck = addYearsLocal(lastCheck, Number(employee.check_period_years) || 1);
+					nextCheck = addYearsLocal(lastCheck, period);
 				}
 
 				const normalizedEmployee = {
 					...employee,
 					last_check_date: lastCheck,
 					next_check_date: nextCheck,
+					check_period_years: period,
 					note: employee.note || null
 				};
 

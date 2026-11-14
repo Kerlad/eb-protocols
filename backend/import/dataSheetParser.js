@@ -87,7 +87,7 @@ function parseDataSheet(worksheet) {
 				electrical_safety_group: normalizeGroup(cellText(row, 9)),
 				last_check_date: cellText(row, 10),
 				next_check_date: cellText(row, 11),
-				check_period_years: Number(cellText(row, 12) || 1),
+				check_period_years: cellText(row, 12) ? Number(cellText(row, 12)) || null : null,
 				source_row: rowNumber
 			};
 			employees.push(employee);
@@ -131,7 +131,7 @@ function parseDataSheet(worksheet) {
 			electrical_safety_group: group,
 			last_check_date: cellText(row, 9),
 			next_check_date: cellText(row, 10),
-			check_period_years: Number(cellText(row, 11) || 1),
+			check_period_years: cellText(row, 11) ? Number(cellText(row, 11)) || null : null,
 			source_row: rowNumber
 		};
 

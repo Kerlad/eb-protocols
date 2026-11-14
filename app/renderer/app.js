@@ -92,6 +92,42 @@
 	}
 
 
+	// T2.3/T2.5: копия правил из backend/utils/checkPeriod.js — менять вместе
+	window.ebCheckPeriod = {
+		isAnnualRight(name) {
+			const text = String(name || "").toLowerCase();
+			return text.includes("оператив") || text.includes("ремонт");
+		},
+		defaultPeriodYears(category, rightNames) {
+			const cat = String(category || "").toLowerCase().trim();
+			if (cat.startsWith("административно")) {
+				return (rightNames || []).some((n) => window.ebCheckPeriod.isAnnualRight(n)) ? 1 : 3;
+			}
+			if (cat.startsWith("инспектирующ")) return 3;
+			return 1;
+		},
+		failedRecheckDate(checkDate) {
+			let date = addDaysStr(checkDate, 29);
+			const [y, m, d] = date.split("-").map(Number);
+			const weekday = new Date(y, m - 1, d).getDay();
+			if (weekday === 6) date = addDaysStr(date, -1);
+			if (weekday === 0) date = addDaysStr(date, -2);
+			return date;
+		}
+	};
+
+	// Карточка работника: период по умолчанию по категории и отмеченным правам
+	function applyDefaultEmpPeriod() {
+		const rightNames = [...document.querySelectorAll("#empRightsBox input:checked")].map((input) => {
+			const label = document.querySelector(`label[for="${input.id}"]`);
+			return label ? label.textContent : "";
+		});
+		setVal("empPeriod", window.ebCheckPeriod.defaultPeriodYears(getVal("empCategory"), rightNames));
+	}
+	window.applyDefaultEmpPeriod = applyDefaultEmpPeriod;
+	const empRightsBox = document.getElementById("empRightsBox");
+	if (empRightsBox) empRightsBox.addEventListener("change", applyDefaultEmpPeriod);
+
 	function mapEmployee(row) {
 		if (!row) return null;
 		const isDeferred = row.note === "DATE_DEFERRED";

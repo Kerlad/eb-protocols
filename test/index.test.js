@@ -1464,3 +1464,124 @@ describe("protocol save validation and rollback (T2.4)", () => {
 		} finally { db.close(); }
 	});
 });
+
+describe("checkPeriod rules (T2.3, T2.5)", () => {
+	const { defaultPeriodYears, failedRecheckDate, isAnnualRight, isFailedResult } = require("../backend/utils/checkPeriod");
+
+	it("administrative staff: 3 years, 12 months with operative or repair rights", () => {
+		assert.equal(defaultPeriodYears("Административно-технический", []), 3);
+		assert.equal(defaultPeriodYears("Административно-технический", ["Выдача нарядов"]), 3);
+		assert.equal(defaultPeriodYears("Административно-технический", ["Права оперативного персонала"]), 1);
+		assert.equal(defaultPeriodYears("Административно-технический", ["Оперативно-ремонтный персонал"]), 1);
+		assert.equal(defaultPeriodYears("Административно-технический", ["Ремонтный персонал"]), 1);
+		assert.equal(isAnnualRight("ОПЕРАТИВНЫЕ переключения"), true);
+	});
+
+	it("other categories", () => {
+		for (const c of ["Оперативный", "Оперативно-ремонтный", "Ремонтный", "Диспетчерский", "", null]) {
+			assert.equal(defaultPeriodYears(c, []), 1, String(c));
+		}
+		assert.equal(defaultPeriodYears("Инспектирующий", ["Оперативный"]), 3);
+	});
+
+	it("failed check: +29 days, weekend moves back to Friday", () => {
+		assert.equal(failedRecheckDate("2026-11-02"), "2026-12-01"); // вторник
+		assert.equal(failedRecheckDate("2026-11-06"), "2026-12-04"); // суббота -> пятница
+		assert.equal(failedRecheckDate("2026-11-07"), "2026-12-04"); // воскресенье -> пятница
+		assert.equal(failedRecheckDate("2026-12-31"), "2027-01-29");
+		assert.equal(isFailedResult("Неуд"), true);
+		assert.equal(isFailedResult("неудовлетворительно"), true);
+		assert.equal(isFailedResult("Уд"), false);
+	});
+});
+
+describe("import applies default period (T2.3)", () => {
+	const ctx = useTempDataDir("eb-test-t23-", ["import/excelImporter.js"]);
+	const path = require("path");
+	const fs = require("fs");
+	const ExcelJS = require("exceljs");
+	const excelPath = path.join(ctx.tmpDir, "t23.xlsx");
+
+	before(async () => {
+		ctx.setup();
+		require("../backend/db/initDb").initDb();
+		const workbook = new ExcelJS.Workbook();
+		const sheet = workbook.addWorksheet("Data");
+		sheet.getRow(1).values = ["Фамилия", "Имя", "Отчество", "Место работы", "Должность", "Объем знаний", "Категория персонала", "Группа", "Дата проверки", "Дата след. проверки", "Периодичность", "Оперативные переключения"];
+		sheet.getRow(2).values = ["Атп", "Без", "Прав", "Цех", "Инженер", "ЭЧТ", "Административно-технический", "IV", new Date(Date.UTC(2026, 2, 10)), "", "", ""];
+		sheet.getRow(3).values = ["Атп", "С", "Правом", "Цех", "Мастер", "ЭЧТ", "Административно-технический", "IV", new Date(Date.UTC(2026, 2, 10)), "", "", "да"];
+		sheet.getRow(4).values = ["Атп", "Явный", "Период", "Цех", "Инженер", "ЭЧТ", "Административно-технический", "IV", new Date(Date.UTC(2026, 2, 10)), "", 2, ""];
+		await workbook.xlsx.writeFile(excelPath);
+	});
+
+	after(() => ctx.teardown());
+
+	it("empty period column uses category and rights; explicit period wins", async () => {
+		const { importExcel } = require("../backend/import/excelImporter");
+		await importExcel(excelPath);
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try {
+			const get = (first) => db.prepare("SELECT check_period_years p, next_check_date n FROM employees WHERE first_name = ?").get(first);
+			assert.deepEqual({ ...get("Без") }, { p: 3, n: "2029-03-10" });
+			assert.deepEqual({ ...get("С") }, { p: 1, n: "2027-03-10" });
+			assert.deepEqual({ ...get("Явный") }, { p: 2, n: "2028-03-10" });
+		} finally {
+			db.close();
+		}
+	});
+});
+
+describe("protocol result updates employee group (T2.5)", () => {
+	const path = require("path");
+	const ctx = useTempDataDir("eb-test-t25-", ["protocol/protocolService.js"]);
+	let protocolsDir, empId;
+	const docxGenerator = require("../backend/protocol/docxGenerator");
+	const originalRender = docxGenerator.renderProtocolDocx;
+
+	const form = (extra) => ({
+		protocol_number: 1, check_date: "2026-11-02", next_check_date: "2027-11-02",
+		full_name_snapshot: "Группов Г.Г.", reason: "Очередная", electrical_safety_group: "IV",
+		final_result: "Уд", commission_name: "Комиссия", chairman_name: "Иванов И.И.", member_1_name: "Петров П.П.",
+		...extra
+	});
+	const employee = () => {
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try { return db.prepare("SELECT * FROM employees WHERE id = ?").get(empId); } finally { db.close(); }
+	};
+
+	before(() => {
+		ctx.setup();
+		require("../backend/db/initDb").initDb();
+		protocolsDir = path.join(ctx.tmpDir, "protocols");
+		const { openDb } = require("../backend/db/connection");
+		const employeesRepository = require("../backend/db/repositories/employeesRepository");
+		const db = openDb();
+		try {
+			empId = employeesRepository.createEmployee(db, {
+				last_name: "Группов", first_name: "Г", full_name: "Группов Г", electrical_safety_group: "III"
+			});
+		} finally { db.close(); }
+		docxGenerator.renderProtocolDocx = () => {};
+	});
+	after(() => {
+		docxGenerator.renderProtocolDocx = originalRender;
+		ctx.teardown();
+	});
+
+	it("Неуд with next date later than +29 days is rejected", () => {
+		const { validateProtocolForm } = require("../backend/protocol/protocolService");
+		assert.throws(() => validateProtocolForm(form({ final_result: "Неуд", next_check_date: "2026-12-02" })), /после «Неуд»/);
+		assert.doesNotThrow(() => validateProtocolForm(form({ final_result: "Неуд", next_check_date: "2026-12-01" })));
+	});
+
+	it("Неуд keeps the group, positive result assigns it", async () => {
+		const { saveProtocol } = require("../backend/protocol/protocolService");
+		await saveProtocol(form({ employee_id: empId, final_result: "Неуд", next_check_date: "2026-12-01" }), { protocolsDir });
+		assert.equal(employee().electrical_safety_group, "III");
+		assert.equal(employee().next_check_date, "2026-12-01");
+		await saveProtocol(form({ employee_id: empId, protocol_number: 2, check_date: "2026-11-20", next_check_date: "2027-11-20" }), { protocolsDir });
+		assert.equal(employee().electrical_safety_group, "IV");
+	});
+});

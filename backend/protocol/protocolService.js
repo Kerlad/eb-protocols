@@ -8,6 +8,7 @@ const { buildOutputFileName } = docxGenerator;
 const employeesRepository = require("../db/repositories/employeesRepository");
 const syncRepository = require("../db/repositories/syncRepository");
 const { addYearsLocal, todayLocal, isIsoDate } = require("../utils/dateUtils");
+const { failedRecheckDate, isFailedResult } = require("../utils/checkPeriod");
 
 function now() {
 	return new Date().toISOString();
@@ -86,6 +87,10 @@ function validateProtocolForm(form) {
 	if (!has(form.next_check_date)) missing.push("дата следующей проверки");
 	else if (!isIsoDate(form.next_check_date)) invalid.push("дата следующей проверки");
 	else if (checkOk && form.next_check_date <= form.check_date) invalid.push("дата следующей проверки (должна быть позже даты проверки)");
+	else if (checkOk && isFailedResult(form.final_result) && form.next_check_date > failedRecheckDate(form.check_date)) {
+		// T2.5: после «Неуд» повторная проверка — не позднее месяца (№ 796 п. 63; решение владельца — +29 дней)
+		invalid.push("дата повторной проверки после «Неуд» (не позднее " + failedRecheckDate(form.check_date) + ")");
+	}
 
 	const parts = [];
 	if (missing.length) parts.push("Не заполнены поля: " + missing.join(", "));
@@ -184,11 +189,16 @@ async function saveProtocol(form, options = {}) {
 			`).run({ ...record, created_at: createdAt, updated_at: createdAt });
 
 			if (record.employee_id) {
-				employeesRepository.updateEmployee(db, record.employee_id, {
+				const employeeUpdate = {
 					last_check_date: record.check_date,
 					next_check_date: record.next_check_date,
 					last_result: record.final_result
-				});
+				};
+				// T2.5: присвоенная группа переходит в карточку только при положительной оценке
+				if (record.electrical_safety_group && !isFailedResult(record.final_result)) {
+					employeeUpdate.electrical_safety_group = record.electrical_safety_group;
+				}
+				employeesRepository.updateEmployee(db, record.employee_id, employeeUpdate);
 			}
 
 			const stats = syncRepository.getLocalDbStats(db);
@@ -217,7 +227,8 @@ async function saveProtocol(form, options = {}) {
 				employeesRepository.updateEmployee(db, prevEmployee.id, {
 					last_check_date: prevEmployee.last_check_date,
 					next_check_date: prevEmployee.next_check_date,
-					last_result: prevEmployee.last_result
+					last_result: prevEmployee.last_result,
+					electrical_safety_group: prevEmployee.electrical_safety_group
 				});
 			}
 			try {
