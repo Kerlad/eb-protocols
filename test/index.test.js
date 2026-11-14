@@ -1747,3 +1747,77 @@ describe("normalizeDate rejects a bare year (T2.12 review)", () => {
 		assert.equal(normalizeDate("46188").value, "2026-06-15");
 	});
 });
+
+describe("deleting a protocol restores the employee card (T2.6)", () => {
+	const path = require("path");
+	const fs = require("fs");
+	const ctx = useTempDataDir("eb-test-t26-", ["protocol/protocolService.js", "db/repositories/journalRepository.js"]);
+	let protocolsDir, empId;
+	const docxGenerator = require("../backend/protocol/docxGenerator");
+	const originalRender = docxGenerator.renderProtocolDocx;
+
+	const form = (extra) => ({
+		protocol_number: 1, check_date: "2026-03-02", next_check_date: "2027-03-02",
+		full_name_snapshot: "Удалов У.У.", reason: "Очередная", electrical_safety_group: "IV",
+		final_result: "Уд", commission_name: "Комиссия", chairman_name: "Иванов И.И.", member_1_name: "Петров П.П.",
+		...extra
+	});
+	const withDb = (fn) => {
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try { return fn(db); } finally { db.close(); }
+	};
+
+	before(() => {
+		ctx.setup();
+		require("../backend/db/initDb").initDb();
+		protocolsDir = path.join(ctx.tmpDir, "protocols");
+		const employeesRepository = require("../backend/db/repositories/employeesRepository");
+		empId = withDb((db) => employeesRepository.createEmployee(db, {
+			last_name: "Удалов", first_name: "У", full_name: "Удалов У", electrical_safety_group: "III"
+		}));
+		docxGenerator.renderProtocolDocx = ({ outputPath }) => {
+			fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+			fs.writeFileSync(outputPath, "x");
+		};
+	});
+	after(() => {
+		docxGenerator.renderProtocolDocx = originalRender;
+		ctx.teardown();
+	});
+
+	it("restores dates, result and group from the previous protocol and keeps files as .deleted", async () => {
+		const { saveProtocol } = require("../backend/protocol/protocolService");
+		const journalRepository = require("../backend/db/repositories/journalRepository");
+		await saveProtocol(form({ employee_id: empId }), { protocolsDir });
+		const second = await saveProtocol(form({
+			employee_id: empId, protocol_number: 2, check_date: "2026-09-02", next_check_date: "2027-09-02",
+			electrical_safety_group: "V"
+		}), { protocolsDir });
+		assert.ok(fs.existsSync(second.docx_path));
+
+		const result = withDb((db) => journalRepository.deleteJournalRecord(db, second.id, { protocolsDir }));
+		assert.equal(result.warning, null);
+		assert.equal(result.renamed_files.length, 1);
+		assert.ok(!fs.existsSync(second.docx_path));
+		assert.ok(fs.existsSync(second.docx_path + ".deleted"));
+
+		const emp = withDb((db) => db.prepare("SELECT * FROM employees WHERE id = ?").get(empId));
+		assert.equal(emp.last_check_date, "2026-03-02");
+		assert.equal(emp.next_check_date, "2027-03-02");
+		assert.equal(emp.last_result, "Уд");
+		assert.equal(emp.electrical_safety_group, "IV");
+		const events = withDb((db) => db.prepare("SELECT * FROM app_events WHERE event_type = 'protocol_deleted'").all());
+		assert.equal(events.length, 1);
+	});
+
+	it("returns a warning and leaves the card untouched when no protocols remain", () => {
+		const journalRepository = require("../backend/db/repositories/journalRepository");
+		const firstId = withDb((db) => db.prepare("SELECT id FROM protocol_journal WHERE employee_id = ?").get(empId).id);
+		const result = withDb((db) => journalRepository.deleteJournalRecord(db, firstId, { protocolsDir }));
+		assert.match(result.warning, /не осталось/);
+		const emp = withDb((db) => db.prepare("SELECT * FROM employees WHERE id = ?").get(empId));
+		assert.equal(emp.last_check_date, "2026-03-02");
+		assert.equal(emp.electrical_safety_group, "IV");
+	});
+});

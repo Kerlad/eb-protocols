@@ -669,8 +669,8 @@
 			return;
 		}
 		try {
-			await api.journal.delete(id);
-			toast(`Протокол №${number} (${fio}) удалён`);
+			const res = await api.journal.delete(id);
+			toast(`Протокол №${number} (${fio}) удалён` + (res && res.warning ? ". " + res.warning : ""));
 			await renderJournal();
 			await loadDashboard();
 		} catch (e) {

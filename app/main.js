@@ -251,14 +251,9 @@ function registerIpc() {
 
 	ipcMain.handle("journal:delete", (event, id) =>
 		withDb((db) => {
-			const result = journalRepository.deleteJournalRecord(db, id);
+			// событие журнала пишется внутри deleteJournalRecord, в одной транзакции с удалением
+			const result = journalRepository.deleteJournalRecord(db, id, { protocolsDir: protocolsDir() });
 			touchDbModified(db);
-			logEvent({
-				event_type: "protocol_deleted",
-				level: "info",
-				message: `Удален протокол №${result.protocol_number}/${result.protocol_year}`,
-				details: result
-			});
 			return result;
 		})
 	);
