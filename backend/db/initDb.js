@@ -27,6 +27,14 @@ function migrateSettings(db) {
 			remove.run(oldKey);
 		}
 		db.prepare("DELETE FROM settings WHERE key IN ('ftp_password', 'ftp.password')").run();
+		// T2.10: до 1.0 синхронизация шла по FTP без шифрования, если ftp.secure не равен "true"
+		// (в интерфейсе этого ключа не было). Уже настроенным установкам сохраняем работающий протокол;
+		// новые получают FTPS по умолчанию. Интерфейс показывает предупреждение для FTP без шифрования.
+		const host = read.get("ftp.host");
+		if (host && host.value && !has.get("ftp.transport")) {
+			const secure = read.get("ftp.secure");
+			insert.run("ftp.transport", secure && secure.value === "true" ? "ftps" : "ftp", new Date().toISOString());
+		}
 	});
 	tx();
 }

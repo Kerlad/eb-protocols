@@ -2006,3 +2006,29 @@ describe("T2.10 transports and SFTP host key", () => {
 		assert.deepEqual({ ok: other.ok, isNew: other.isNew }, { ok: false, isNew: false });
 	});
 });
+
+describe("existing FTP setup keeps its transport (T2.10 review)", () => {
+	const ctx = useTempDataDir("eb-test-t210m-");
+	before(() => ctx.setup());
+	after(() => ctx.teardown());
+
+	it("configured host without transport -> ftp (or ftps when ftp.secure=true); no host -> nothing", () => {
+		const { openDb } = require("../backend/db/connection");
+		const { initDb } = require("../backend/db/initDb");
+		initDb();
+		const db = openDb();
+		const get = () => (db.prepare("SELECT value FROM settings WHERE key = 'ftp.transport'").get() || {}).value;
+		try {
+			const { migrateSettings } = require("../backend/db/initDb");
+			migrateSettings(db);
+			assert.equal(get(), undefined);
+			db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('ftp.host', 'ftp.example.com', 'x')").run();
+			migrateSettings(db);
+			assert.equal(get(), "ftp");
+			db.prepare("DELETE FROM settings WHERE key = 'ftp.transport'").run();
+			db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('ftp.secure', 'true', 'x')").run();
+			migrateSettings(db);
+			assert.equal(get(), "ftps");
+		} finally { db.close(); }
+	});
+});
