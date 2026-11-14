@@ -27,7 +27,8 @@ function normalizeDate(value) {
 		if (!original) return { value: null, error: null };
 
 		// Excel-серийный номер; парсер листа отдаёт ячейки строками, поэтому проверяем и строку
-		if (/^\d{4,6}(\.\d+)?$/.test(original)) {
+		// только правдоподобный диапазон (20000…80000 = 1954…2119): «2026» — это год, а не дата
+		if (/^\d{5}(\.\d+)?$/.test(original) && Number(original) >= 20000 && Number(original) <= 80000) {
 			iso = excelSerialToIso(Number(original));
 		} else {
 			const ru = original.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})$/) || original.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
