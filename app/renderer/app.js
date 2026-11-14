@@ -825,6 +825,7 @@
 			setVal("empPeriod", full.check_period_years || 1);
 			setVal("empLastCheck", full.last_check_date || "");
 			setVal("empNextCheck", full.next_check_date || "");
+			updateEmpNextCheckWarn();
 			
 			const modal = byId("addEmployeeModal");
 			if (modal) modal.classList.add("active");
@@ -848,6 +849,21 @@
 		const titleEl = document.querySelector("#addEmployeeModal h3");
 		if (titleEl) titleEl.textContent = "Добавить работника";
 	};
+
+	// T2.2: предупреждение о просрочке видно сразу, при вводе и при открытии карточки
+	function updateEmpNextCheckWarn() {
+		const warnEl = document.getElementById("empNextCheckWarn");
+		if (!warnEl) return;
+		const next = getVal("empNextCheck") || "";
+		warnEl.textContent = next && next < todayStr() ? "Срок проверки истёк" : "";
+	}
+	["empNextCheck", "empLastCheck"].forEach((id) => {
+		const input = document.getElementById(id);
+		if (input) {
+			input.addEventListener("input", updateEmpNextCheckWarn);
+			input.addEventListener("change", updateEmpNextCheckWarn);
+		}
+	});
 
 	window.submitAddEmployee = async function () {
 		const lastCheck = getVal("empLastCheck") || null;
