@@ -1,5 +1,5 @@
 function getProtocolYear(checkDate) {
-	return new Date(checkDate).getFullYear();
+	return Number(String(checkDate).slice(0, 4));
 }
 
 function getNextProtocolNumber(db, checkDate) {

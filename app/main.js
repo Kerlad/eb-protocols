@@ -12,6 +12,7 @@ const settingsRepository = require("../backend/db/repositories/settingsRepositor
 const eventsRepository = require("../backend/db/repositories/eventsRepository");
 const protocolService = require("../backend/protocol/protocolService");
 const { getNextProtocolNumber } = require("../backend/protocol/protocolNumbering");
+const { todayLocal, addDaysLocal } = require("../backend/utils/dateUtils");
 const { createTestProtocol } = require("../backend/protocol/docxGenerator");
 const syncService = require("../backend/sync/syncService");
 const ftpClient = require("../backend/sync/ftpClient");
@@ -218,7 +219,7 @@ function registerIpc() {
 	);
 
 	ipcMain.handle("protocols:getNextNumber", (event, checkDate) =>
-		withDb((db) => getNextProtocolNumber(db, checkDate || new Date().toISOString().slice(0, 10)))
+		withDb((db) => getNextProtocolNumber(db, checkDate || todayLocal()))
 	);
 
 	ipcMain.handle("protocols:save", async (event, form) => {
@@ -566,8 +567,8 @@ function registerIpc() {
 			const total = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted'").get().c;
 			const year = new Date().getFullYear();
 			const journalStats = db.prepare("SELECT COUNT(*) as count, COALESCE(MAX(protocol_number), 0) as max_num FROM protocol_journal WHERE protocol_year = ?").get(year);
-			const now = new Date().toISOString().slice(0, 10);
-			const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+			const now = todayLocal();
+			const in30 = addDaysLocal(now, 30);
 			const upcoming = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND next_check_date IS NOT NULL AND next_check_date >= ? AND next_check_date <= ?").get(now, in30).c;
 			const overdue = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND (next_check_date < ? OR note = 'DATE_DEFERRED')").get(now).c;
 			const actual = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND next_check_date IS NOT NULL AND next_check_date > ?").get(in30).c;

@@ -60,13 +60,37 @@
 
 	function statusByNext(nextDate) {
 		if (!nextDate) return "ok";
-		const days = (new Date(nextDate) - new Date()) / 86400000;
-		if (days < 0) return "bad";
+		const next = String(nextDate).slice(0, 10);
+		if (next < todayStr()) return "bad";
+		const [y, m, d] = next.split("-").map(Number);
+		const n = new Date();
+		const days = (new Date(y, m - 1, d) - new Date(n.getFullYear(), n.getMonth(), n.getDate())) / 86400000;
 		if (days < 60) return "warn";
 		return "ok";
 	}
 
 	// esc() определена один раз — глобально в inline-скрипте index.html.
+
+	function localStr(date) {
+		return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+	}
+
+	function todayStr() {
+		return localStr(new Date());
+	}
+
+	function addDaysStr(dateStr, n) {
+		const [y, m, d] = dateStr.split("-").map(Number);
+		return localStr(new Date(y, m - 1, d + n));
+	}
+
+	function addYearsStr(dateStr, n) {
+		const [y, m, d] = dateStr.split("-").map(Number);
+		const date = new Date(y + n, m - 1, d);
+		if (date.getMonth() !== m - 1) date.setDate(0);
+		return localStr(date);
+	}
+
 
 	function mapEmployee(row) {
 		if (!row) return null;
@@ -481,7 +505,7 @@
 
 	async function refreshProtocolNumber() {
 		try {
-			setVal("checkDate", new Date().toISOString().slice(0, 10));
+			setVal("checkDate", todayStr());
 			const checkDate = getVal("checkDate");
 			const res = await api.protocols.getNextNumber(checkDate);
 			if (res && res.nextNumber) { setVal("protocolNo", res.nextNumber); if (typeof window.previewProtocol === "function") window.previewProtocol(); }
@@ -701,11 +725,9 @@
 	window.showUpcomingModal = async function () {
 		try {
 			const rows = await api.employees.listAll();
-			const today = new Date();
-			const in30 = new Date(today.getTime() + 30 * 86400000);
-			const todayStr = today.toISOString().slice(0, 10);
-			const in30Str = in30.toISOString().slice(0, 10);
-			const list = (rows || []).map(mapEmployee).filter(w => w && w.next && w.next >= todayStr && w.next <= in30Str);
+			const todayS = todayStr();
+			const in30Str = addDaysStr(todayS, 30);
+			const list = (rows || []).map(mapEmployee).filter(w => w && w.next && w.next >= todayS && w.next <= in30Str);
 			const body = list.length
 				? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="ghost" style="padding:5px 12px;font-size:12px" onclick="exportUpcomingExcel()">Экспорт в Excel</button></div><div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)} · ${esc(w.pos)}</div></div><span class="status warn">${esc(fmt(w.next))}</span></div>`).join("")}</div>`
 				: '<div class="muted" style="padding:16px 0">Нет работников со статусом «Скоро»</div>';
@@ -716,7 +738,6 @@
 	window.showOverdueModal = async function () {
 		try {
 			const rows = await api.employees.listAll();
-			const today = new Date().toISOString().slice(0, 10);
 			const list = (rows || []).map(mapEmployee).filter(w => w && (w.status === 'bad' || w.status === 'bad_star'));
 			const body = list.length
 				? `<div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)}</div></div><span class="status bad">Просрочено</span></div>`).join("")}</div>`
@@ -837,23 +858,16 @@
 		}
 
 		if (lastCheck === "2000-01-01") {
-			const today = new Date();
-			today.setDate(today.getDate() + 14);
-			nextCheck = today.toISOString().slice(0, 10);
+			nextCheck = addDaysStr(todayStr(), 14);
 			dateDeferred = true;
 		} else if (!nextCheck) {
 			const cat = getVal("empCategory") || "";
 			const period = cat.includes("Административно") ? 3 : 1;
-			const d = new Date(lastCheck + "T00:00:00");
-			d.setFullYear(d.getFullYear() + period);
-			nextCheck = d.toISOString().slice(0, 10);
+			nextCheck = addYearsStr(lastCheck, period);
 		}
 
-		const today = new Date().toISOString().slice(0, 10);
-		if (nextCheck && nextCheck < today) {
-			const deferred = new Date();
-			deferred.setDate(deferred.getDate() + 14);
-			nextCheck = deferred.toISOString().slice(0, 10);
+		if (nextCheck && nextCheck < todayStr()) {
+			nextCheck = addDaysStr(todayStr(), 14);
 			dateDeferred = true;
 		}
 

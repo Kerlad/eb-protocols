@@ -1259,3 +1259,47 @@ describe("T2.9 safe download, upload, backup", () => {
 		assert.ok(before.equals(fs.readFileSync(dbPath)));
 	});
 });
+describe("dateUtils (T2.11)", () => {
+	const { mock } = require("node:test");
+	const { todayLocal, addDaysLocal, addYearsLocal, isIsoDate } = require("../backend/utils/dateUtils");
+
+	it("addYearsLocal: 29.02 + 1 year in non-leap year gives 28.02", () => {
+		assert.equal(addYearsLocal("2028-02-29", 1), "2029-02-28");
+		assert.equal(addYearsLocal("2028-02-29", 4), "2032-02-29");
+		assert.equal(addYearsLocal("2026-06-15", 3), "2029-06-15");
+	});
+
+	it("addDaysLocal crosses month and year boundaries", () => {
+		assert.equal(addDaysLocal("2026-12-31", 1), "2027-01-01");
+		assert.equal(addDaysLocal("2026-03-01", -1), "2026-02-28");
+		assert.equal(addDaysLocal("2026-06-15", 30), "2026-07-15");
+	});
+
+	it("isIsoDate validates format and calendar", () => {
+		assert.equal(isIsoDate("2026-06-15"), true);
+		assert.equal(isIsoDate("2028-02-29"), true);
+		assert.equal(isIsoDate("2026-02-30"), false);
+		assert.equal(isIsoDate("2026-13-01"), false);
+		assert.equal(isIsoDate("15.06.2026"), false);
+		assert.equal(isIsoDate("2026-6-5"), false);
+		assert.equal(isIsoDate(null), false);
+	});
+
+	it("todayLocal returns local date at 23:30 local time", () => {
+		mock.timers.enable({ apis: ["Date"], now: new Date(2026, 5, 15, 23, 30, 0) });
+		try {
+			assert.equal(todayLocal(), "2026-06-15");
+		} finally {
+			mock.timers.reset();
+		}
+	});
+
+	it("todayLocal returns local date at 00:30 local time", () => {
+		mock.timers.enable({ apis: ["Date"], now: new Date(2026, 0, 1, 0, 30, 0) });
+		try {
+			assert.equal(todayLocal(), "2026-01-01");
+		} finally {
+			mock.timers.reset();
+		}
+	});
+});

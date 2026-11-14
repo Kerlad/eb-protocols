@@ -6,6 +6,7 @@ const { parseDataSheet } = require("./dataSheetParser");
 const employeesRepository = require("../db/repositories/employeesRepository");
 const referencesRepository = require("../db/repositories/referencesRepository");
 const syncRepository = require("../db/repositories/syncRepository");
+const { todayLocal, addDaysLocal, addYearsLocal } = require("../utils/dateUtils");
 
 function normalizeDate(value) {
 	if (!value) return null;
@@ -97,22 +98,16 @@ function normalizeDate(value) {
 				}
 
 				if (lastCheck === "2000-01-01") {
-					const today = new Date();
-					today.setDate(today.getDate() + 14);
-					nextCheck = today.toISOString().slice(0, 10);
+					nextCheck = addDaysLocal(todayLocal(), 14);
 					dateDeferred = true;
 				} else if (!nextCheck) {
-					const checkDate = new Date(lastCheck + "T00:00:00");
 					const period = (employee.personnel_category || "").includes("Административно") ? 3 : 1;
-					checkDate.setFullYear(checkDate.getFullYear() + period);
-					nextCheck = checkDate.toISOString().slice(0, 10);
+					nextCheck = addYearsLocal(lastCheck, period);
 				}
 
-				const today = new Date().toISOString().slice(0, 10);
+				const today = todayLocal();
 				if (nextCheck && nextCheck < today) {
-					const deferred = new Date();
-					deferred.setDate(deferred.getDate() + 14);
-					nextCheck = deferred.toISOString().slice(0, 10);
+					nextCheck = addDaysLocal(today, 14);
 					dateDeferred = true;
 				}
 
@@ -444,8 +439,8 @@ async function createEmployeesTemplate(filePath) {
 async function exportUpcomingToExcel(filePath) {
 	const db = openDb();
 	try {
-		const today = new Date().toISOString().slice(0, 10);
-		const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+		const today = todayLocal();
+		const in30 = addDaysLocal(today, 30);
 		const employees = db.prepare(`
 			SELECT *
 			FROM employees

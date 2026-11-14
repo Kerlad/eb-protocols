@@ -5,7 +5,7 @@ const { buildProtocolPlaceholderMap } = require("./placeholderMap");
 const { renderProtocolDocx, buildOutputFileName } = require("./docxGenerator");
 const employeesRepository = require("../db/repositories/employeesRepository");
 const syncRepository = require("../db/repositories/syncRepository");
-const { addYearsLocal } = require("../utils/dateUtils");
+const { addYearsLocal, todayLocal } = require("../utils/dateUtils");
 
 function now() {
 	return new Date().toISOString();
@@ -27,7 +27,7 @@ function getProtocolDraft(form) {
 			employee = employeesRepository.findById(db, form.employee_id);
 		}
 
-		const checkDate = form.check_date || now().slice(0, 10);
+		const checkDate = form.check_date || todayLocal();
 		const { protocolYear, nextNumber } = getNextProtocolNumber(db, checkDate);
 
 		const rightsText = employee && employee.rights

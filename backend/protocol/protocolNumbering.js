@@ -2,7 +2,7 @@ function getProtocolYear(checkDate) {
 	if (!checkDate) {
 		throw new Error("Дата проверки обязательна для расчета года протокола");
 	}
-	return new Date(checkDate).getFullYear();
+	return Number(String(checkDate).slice(0, 4));
 }
 
 function getNextProtocolNumber(db, checkDate) {

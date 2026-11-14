@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const PizZip = require("pizzip");
+const { todayLocal, addDaysLocal } = require("../utils/dateUtils");
 const Docxtemplater = require("docxtemplater");
 const { buildProtocolPlaceholderMap } = require("./placeholderMap");
 
@@ -86,9 +87,9 @@ function buildOutputFileName(form) {
 function createTestProtocol(outputDir) {
 	const form = {
 		protocol_number: 1,
-		check_date: new Date().toISOString().slice(0, 10),
+		check_date: todayLocal(),
 		reason: "Очередная проверка",
-		next_check_date: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+		next_check_date: addDaysLocal(todayLocal(), 365),
 		commission_name: "Комиссия по проверке знаний",
 		chairman_position: "Председатель",
 		chairman_name: "Иванов И.И.",
