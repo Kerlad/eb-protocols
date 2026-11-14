@@ -801,7 +801,9 @@
 			const report = await api.import.excel();
 			if (!report || report.canceled) return;
 			let msg = `Импорт завершён: +${report.employeesCreated} создано, ${report.employeesUpdated} обновлено, прав: ${report.workRights}`;
+			toast(msg);
 			if (report.errors && report.errors.length) {
+				// T2.12: список проблем импорта (нераспознанные даты и т. п.) — каждая строка экранируется
 				const modal = document.getElementById("importErrorsModal");
 				const summary = document.getElementById("importErrorsSummary");
 				const body = document.getElementById("importErrorsBody");
@@ -810,8 +812,6 @@
 					`<div style="padding:8px 10px;border-bottom:1px solid var(--notion-border-soft);font-size:13px;color:var(--notion-text)">${esc(e)}</div>`
 				).join("");
 				modal.classList.add("active");
-			} else {
-				toast(msg);
 			}
 			await loadReferences();
 			await window.renderEmployees();

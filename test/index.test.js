@@ -1659,3 +1659,91 @@ describe("sync conflicts by change id (T2.8)", () => {
 		assert.equal(s.base_change_id, s.change_id);
 	});
 });
+
+describe("normalizeDate (T2.12)", () => {
+	const { normalizeDate } = require("../backend/import/excelImporter");
+
+	it("accepts the supported text formats", () => {
+		assert.deepEqual(normalizeDate("15.06.2026"), { value: "2026-06-15", error: null });
+		assert.deepEqual(normalizeDate("15.06.26"), { value: "2026-06-15", error: null });
+		assert.deepEqual(normalizeDate("15/06/2026"), { value: "2026-06-15", error: null });
+		assert.deepEqual(normalizeDate("2026-06-15"), { value: "2026-06-15", error: null });
+		assert.deepEqual(normalizeDate(" 5.6.2026 "), { value: "2026-06-05", error: null });
+	});
+
+	it("treats empty values as empty, not as errors", () => {
+		for (const v of [null, undefined, "", "   "]) {
+			assert.deepEqual(normalizeDate(v), { value: null, error: null });
+		}
+	});
+
+	it("accepts Date objects and Excel serial numbers via UTC", () => {
+		assert.deepEqual(normalizeDate(new Date(Date.UTC(2026, 5, 15))), { value: "2026-06-15", error: null });
+		const serial = (Date.UTC(2026, 5, 15) - Date.UTC(1899, 11, 30)) / 86400000;
+		assert.deepEqual(normalizeDate(serial), { value: "2026-06-15", error: null });
+		assert.deepEqual(normalizeDate(String(serial)), { value: "2026-06-15", error: null });
+	});
+
+	it("rejects impossible calendar dates and unknown formats", () => {
+		for (const v of ["31.02.2026", "2026-02-30", "2026-13-01", "15.06.2026.", "hello", "15-06-2026", "31/02/2026"]) {
+			const r = normalizeDate(v);
+			assert.equal(r.value, null, v);
+			assert.equal(r.error, `не распознана дата "${v}"`, v);
+		}
+	});
+
+	it("rejects invalid Date objects without throwing", () => {
+		const r = normalizeDate(new Date("bogus"));
+		assert.equal(r.value, null);
+		assert.ok(r.error);
+	});
+});
+
+describe("import reports bad dates without aborting (T2.12)", () => {
+	const ctx = useTempDataDir("eb-test-t212-", ["import/excelImporter.js"]);
+	const path = require("path");
+	const ExcelJS = require("exceljs");
+	const excelPath = path.join(ctx.tmpDir, "t212.xlsx");
+
+	before(async () => {
+		ctx.setup();
+		require("../backend/db/initDb").initDb();
+		const workbook = new ExcelJS.Workbook();
+		const sheet = workbook.addWorksheet("Data");
+		sheet.getRow(1).values = ["Фамилия", "Имя", "Отчество", "Место работы", "Должность", "Объем знаний", "Категория персонала", "Группа", "Дата проверки", "Дата след. проверки", "Периодичность", "Оперативные переключения"];
+		sheet.getRow(2).values = ["Датов", "Первый", "Тест", "Цех", "Инженер", "ЭЧТ", "Административно-технический", "IV", "15/06/2026", "", 1, ""];
+		sheet.getRow(3).values = ["Датов", "Второй", "Тест", "Цех", "Инженер", "ЭЧТ", "Административно-технический", "IV", "31.02.2026", "", 1, ""];
+		await workbook.xlsx.writeFile(excelPath);
+	});
+
+	after(() => ctx.teardown());
+
+	it("accepts 15/06/2026, nulls 31.02.2026 and keeps importing", async () => {
+		const { importExcel } = require("../backend/import/excelImporter");
+		const report = await importExcel(excelPath);
+		assert.equal(report.employeesCreated, 2);
+		assert.deepEqual(
+			report.errors.filter((e) => e.includes("не распознана дата")),
+			['Строка 3: не распознана дата "31.02.2026"']
+		);
+
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try {
+			const get = (first) => db.prepare("SELECT last_check_date l, next_check_date n FROM employees WHERE first_name = ?").get(first);
+			assert.deepEqual({ ...get("Первый") }, { l: "2026-06-15", n: "2027-06-15" });
+			assert.deepEqual({ ...get("Второй") }, { l: null, n: null });
+		} finally {
+			db.close();
+		}
+	});
+});
+
+describe("normalizeDate rejects a bare year (T2.12 review)", () => {
+	const { normalizeDate } = require("../backend/import/excelImporter");
+	it("'2026' is an error, '46188' is an Excel serial", () => {
+		assert.equal(normalizeDate("2026").value, null);
+		assert.ok(normalizeDate("2026").error);
+		assert.equal(normalizeDate("46188").value, "2026-06-15");
+	});
+});

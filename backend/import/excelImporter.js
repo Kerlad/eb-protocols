@@ -6,37 +6,53 @@ const { parseDataSheet } = require("./dataSheetParser");
 const employeesRepository = require("../db/repositories/employeesRepository");
 const referencesRepository = require("../db/repositories/referencesRepository");
 const syncRepository = require("../db/repositories/syncRepository");
-const { todayLocal, addDaysLocal, addYearsLocal } = require("../utils/dateUtils");
+const { todayLocal, addDaysLocal, addYearsLocal, isIsoDate } = require("../utils/dateUtils");
 const { defaultPeriodYears } = require("../utils/checkPeriod");
 
+// Возвращает { value: "ГГГГ-ММ-ДД" | null, error: string | null }.
+// error — текст без префикса строки; вызывающий код добавляет «Строка N: ».
 function normalizeDate(value) {
-	if (!value) return null;
+	if (value === null || value === undefined || value === "" || value === 0) {
+		return { value: null, error: null };
+	}
+
+	const original = value instanceof Date ? String(value) : String(value).trim();
+	let iso = null;
 
 	if (value instanceof Date) {
-		return value.toISOString().slice(0, 10);
+		if (!Number.isNaN(value.getTime())) iso = value.toISOString().slice(0, 10);
+	} else if (typeof value === "number") {
+		iso = excelSerialToIso(value);
+	} else {
+		if (!original) return { value: null, error: null };
+
+		// Excel-серийный номер; парсер листа отдаёт ячейки строками, поэтому проверяем и строку
+		if (/^\d{4,6}(\.\d+)?$/.test(original)) {
+			iso = excelSerialToIso(Number(original));
+		} else {
+			const ru = original.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})$/) || original.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+			const iso8601 = original.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/);
+
+			if (ru) {
+				const [, day, month, rawYear] = ru;
+				const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
+				iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+			} else if (iso8601) {
+				iso = `${iso8601[1]}-${iso8601[2]}-${iso8601[3]}`;
+			}
+		}
 	}
 
-	if (typeof value === "number") {
-		const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-		const date = new Date(excelEpoch.getTime() + value * 86400000);
-		return date.toISOString().slice(0, 10);
-	}
+	if (iso && isIsoDate(iso)) return { value: iso, error: null };
+	return { value: null, error: `не распознана дата "${original}"` };
+}
 
-	const text = String(value).trim();
-	if (!text) return null;
-
-	const russianDate = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-
-	if (russianDate) {
-		const [, day, month, year] = russianDate;
-		return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-	}
-
-	if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
-		return text.slice(0, 10);
-	}
-
-	return text;
+function excelSerialToIso(serial) {
+	if (!Number.isFinite(serial) || serial <= 0) return null;
+	const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+	const date = new Date(excelEpoch.getTime() + serial * 86400000);
+	if (Number.isNaN(date.getTime())) return null;
+	return date.toISOString().slice(0, 10);
 }
 
 	async function importExcel(filePath) {
@@ -97,14 +113,20 @@ function normalizeDate(value) {
 			}
 
 			for (const employee of data.employees) {
-				const lastCheck = normalizeDate(employee.last_check_date);
-				let nextCheck = normalizeDate(employee.next_check_date);
+				const lastParsed = normalizeDate(employee.last_check_date);
+				const nextParsed = normalizeDate(employee.next_check_date);
+				const lastCheck = lastParsed.value;
+				let nextCheck = nextParsed.value;
+				// T2.12: нераспознанная дата → null и строка в отчёте; импорт продолжается
+				for (const parsed of [lastParsed, nextParsed]) {
+					if (parsed.error) report.errors.push(`Строка ${employee.source_row}: ${parsed.error}`);
+				}
 				// T2.3: пустая колонка «Периодичность» — значение по категории и правам
 				const period = Number(employee.check_period_years)
 					|| defaultPeriodYears(employee.personnel_category, rightNamesBySourceRow.get(employee.source_row));
 
 				// T2.1: даты берутся из файла как есть; пустая остаётся null, просрочка не сдвигается
-				if (lastCheck && !nextCheck) {
+				if (lastCheck && !nextCheck && !nextParsed.error) {
 					nextCheck = addYearsLocal(lastCheck, period);
 				}
 
@@ -482,6 +504,7 @@ async function exportUpcomingToExcel(filePath) {
 }
 
 module.exports = {
+	normalizeDate,
 	importExcel,
 	exportScheduleToExcel,
 	exportJournalToExcel,
