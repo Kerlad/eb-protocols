@@ -3,12 +3,48 @@ const path = require("path");
 const { openDb, touchDbOpened } = require("./connection");
 const pkg = require("../../package.json");
 
+const SETTINGS_KEY_MIGRATION = [
+	["ftp_host", "ftp.host"],
+	["ftp_port", "ftp.port"],
+	["ftp_user", "ftp.user"],
+	["ftp_path", "ftp.remote_dir"]
+];
+
+// T1.1: переименование ключей FTP; T1.2: удаление паролей из настроек
+function migrateSettings(db) {
+	const tx = db.transaction(() => {
+		const has = db.prepare("SELECT 1 FROM settings WHERE key = ?");
+		const read = db.prepare("SELECT value FROM settings WHERE key = ?");
+		const insert = db.prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)");
+		const remove = db.prepare("DELETE FROM settings WHERE key = ?");
+		for (const [oldKey, newKey] of SETTINGS_KEY_MIGRATION) {
+			if (!has.get(oldKey)) continue;
+			if (!has.get(newKey)) {
+				insert.run(newKey, read.get(oldKey).value, new Date().toISOString());
+			}
+			remove.run(oldKey);
+		}
+		db.prepare("DELETE FROM settings WHERE key IN ('ftp_password', 'ftp.password')").run();
+	});
+	tx();
+}
+
 function initDb() {
 	const db = openDb();
+	try {
+		initSchema(db);
+	} finally {
+		db.close();
+	}
+}
+
+function initSchema(db) {
 	const schemaPath = path.join(__dirname, "schema.sql");
 	const schema = fs.readFileSync(schemaPath, "utf8");
 
 	db.exec(schema);
+
+	migrateSettings(db);
 
 	// Migration: add updated_at to reference tables if missing
 	const tables = ['departments', 'knowledge_scopes', 'commission_chairmen', 'commission_members', 'commissions', 'work_rights'];
@@ -38,4 +74,4 @@ if (require.main === module) {
 	initDb();
 }
 
-module.exports = { initDb };
+module.exports = { initDb, migrateSettings };

@@ -346,6 +346,10 @@ describe("protocol primary reason", () => {
 describe("getProtocolDraft instructions_text", () => {
 	const { getProtocolDraft } = require("../backend/protocol/protocolService");
 
+	before(() => {
+		require("../backend/db/initDb").initDb();
+	});
+
 	it("includes instructions_text in returned draft", () => {
 		const draft = getProtocolDraft({
 			check_date: "2026-07-01",
@@ -899,6 +903,237 @@ describe("importExcel end-to-end", () => {
 			const shiftedRow = db.prepare("SELECT * FROM employees WHERE full_name = ?").get("Сидоров Сидр Сидорович");
 			assert.ok(shiftedRow);
 			assert.equal(shiftedRow.workplace_name, "Участок №3");
+		} finally {
+			db.close();
+		}
+	});
+});
+
+// Общая подготовка для тестов, которым нужна своя папка данных
+function useTempDataDir(prefix, extraModules = []) {
+	const os = require("os");
+	const path = require("path");
+	const fs = require("fs");
+	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+	const dbDir = path.join(tmpDir, "data");
+	const cacheKeys = [
+		"db/connection.js", "db/initDb.js", "paths.js", "security/dbPassword.js",
+		"security/ftpCredentials.js", "db/repositories/settingsRepository.js", ...extraModules
+	].map((p) => path.resolve(__dirname, "..", "backend", p));
+	const clearCache = () => { for (const key of cacheKeys) delete require.cache[key]; };
+	return {
+		tmpDir,
+		dbDir,
+		setup() {
+			process.env.EB_DATA_DIR = dbDir;
+			clearCache();
+			fs.mkdirSync(dbDir, { recursive: true });
+		},
+		teardown() {
+			delete process.env.EB_DATA_DIR;
+			clearCache();
+			try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+		}
+	};
+}
+
+describe("settings migration and FTP config", () => {
+	const ctx = useTempDataDir("eb-test-settings-");
+	const keyStorage = require("../backend/security/keyStorage");
+	const originalGetSecret = keyStorage.getSecret;
+
+	before(() => {
+		ctx.setup();
+		keyStorage.getSecret = async () => null;
+	});
+
+	after(() => {
+		keyStorage.getSecret = originalGetSecret;
+		ctx.teardown();
+	});
+
+	it("migrates old FTP keys, keeps existing new keys, removes passwords", () => {
+		const { openDb } = require("../backend/db/connection");
+		const { initDb } = require("../backend/db/initDb");
+
+		initDb();
+		let db = openDb();
+		const ins = db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, 'x')");
+		ins.run("ftp_host", "old.example.com");
+		ins.run("ftp_port", "2121");
+		ins.run("ftp_user", "olduser");
+		ins.run("ftp_path", "/old");
+		ins.run("ftp.user", "newuser"); // новый ключ уже есть — не затираем
+		ins.run("ftp_password", "secret");
+		ins.run("ftp.password", "secret2");
+		db.close();
+
+		initDb();
+		db = openDb();
+		try {
+			const all = Object.fromEntries(db.prepare("SELECT key, value FROM settings").all().map((r) => [r.key, r.value]));
+			assert.equal(all["ftp.host"], "old.example.com");
+			assert.equal(all["ftp.port"], "2121");
+			assert.equal(all["ftp.user"], "newuser");
+			assert.equal(all["ftp.remote_dir"], "/old");
+			for (const key of ["ftp_host", "ftp_port", "ftp_user", "ftp_path", "ftp_password", "ftp.password"]) {
+				assert.equal(key in all, false, key);
+			}
+			assert.equal(db.prepare("SELECT COUNT(*) AS c FROM settings WHERE key LIKE '%pass%'").get().c, 0);
+		} finally {
+			db.close();
+		}
+	});
+
+	it("buildFtpConfig reads new keys", async () => {
+		const { openDb } = require("../backend/db/connection");
+		const { buildFtpConfig } = require("../backend/security/ftpCredentials");
+		const db = openDb();
+		try {
+			const config = await buildFtpConfig(db);
+			assert.equal(config.host, "old.example.com");
+			assert.equal(config.port, 2121);
+			assert.equal(config.user, "newuser");
+			assert.equal(config.remoteDir, "/old");
+		} finally {
+			db.close();
+		}
+	});
+
+	it("buildFtpConfig throws on empty host", async () => {
+		const { openDb } = require("../backend/db/connection");
+		const { buildFtpConfig } = require("../backend/security/ftpCredentials");
+		const db = openDb();
+		try {
+			db.prepare("DELETE FROM settings WHERE key = 'ftp.host'").run();
+			await assert.rejects(
+				() => buildFtpConfig(db),
+				{ message: "Не указан адрес FTP-сервера. Заполните настройки синхронизации." }
+			);
+		} finally {
+			db.close();
+		}
+	});
+});
+
+describe("database encryption", () => {
+	const ctx = useTempDataDir("eb-test-encrypt-", ["sync/backupService.js"]);
+	const keyStorage = require("../backend/security/keyStorage");
+	const originals = {};
+	const secrets = new Map();
+	const SQLITE_HEADER = "SQLite format 3\0";
+
+	function readHeader() {
+		const fs = require("fs");
+		const path = require("path");
+		const fd = fs.openSync(path.join(ctx.dbDir, "eb_protocols.db"), "r");
+		try {
+			const buf = Buffer.alloc(16);
+			fs.readSync(fd, buf, 0, 16, 0);
+			return buf.toString("latin1");
+		} finally {
+			fs.closeSync(fd);
+		}
+	}
+
+	function makeDeps() {
+		const connection = require("../backend/db/connection");
+		const { createLocalBackup } = require("../backend/sync/backupService");
+		const path = require("path");
+		return {
+			backup: (reason) => createLocalBackup({ dbPath: connection.DB_PATH, backupsDir: path.join(ctx.dbDir, "backups"), reason }),
+			rekey: (key) => connection.rekeyDb(key),
+			getCurrentKey: () => connection.getRuntimeDbKey(),
+			setRuntimeKey: (key) => connection.setRuntimeDbKey(key)
+		};
+	}
+
+	before(() => {
+		ctx.setup();
+		for (const name of ["isAvailable", "getAvailabilityMessage", "setSecret", "getSecret", "deleteSecret"]) {
+			originals[name] = keyStorage[name];
+		}
+		keyStorage.isAvailable = () => true;
+		keyStorage.getAvailabilityMessage = () => null;
+		keyStorage.setSecret = async (account, secret) => { secrets.set(account, secret); };
+		keyStorage.getSecret = async (account) => secrets.get(account) || null;
+		keyStorage.deleteSecret = async (account) => secrets.delete(account);
+
+		const { initDb } = require("../backend/db/initDb");
+		const { openDb } = require("../backend/db/connection");
+		initDb();
+		const db = openDb();
+		db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('probe', 'hello', 'x')").run();
+		db.close();
+	});
+
+	after(() => {
+		Object.assign(keyStorage, originals);
+		ctx.teardown();
+	});
+
+	it("plain database starts with SQLite header", () => {
+		assert.equal(readHeader(), SQLITE_HEADER);
+	});
+
+	it("rejects password shorter than 8 characters", async () => {
+		const dbPassword = require("../backend/security/dbPassword");
+		await assert.rejects(() => dbPassword.enableDbPassword("short", makeDeps()), /не менее 8/);
+		assert.equal(readHeader(), SQLITE_HEADER);
+	});
+
+	it("enable: file is encrypted, readable only with the key, key survives restart", async () => {
+		const fs = require("fs");
+		const path = require("path");
+		const dbPassword = require("../backend/security/dbPassword");
+		const connection = require("../backend/db/connection");
+
+		await dbPassword.enableDbPassword("correct horse battery", makeDeps());
+
+		assert.notEqual(readHeader(), SQLITE_HEADER);
+		assert.ok(fs.existsSync(path.join(ctx.dbDir, "eb_protocols.salt")));
+		assert.ok(fs.readdirSync(path.join(ctx.dbDir, "backups")).some((n) => n.includes("before_encrypt")));
+
+		// без ключа — ошибка
+		connection.setRuntimeDbKey(null);
+		let db = connection.openDb();
+		try {
+			assert.throws(() => db.prepare("SELECT count(*) FROM sqlite_master").get());
+		} finally {
+			db.close();
+		}
+
+		// «перезапуск»: ключ восстанавливается из пароля и соли
+		const key = await dbPassword.getRuntimeKey();
+		assert.match(key, /^[0-9a-f]{64}$/);
+		connection.setRuntimeDbKey(key);
+		db = connection.openDb();
+		try {
+			assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'probe'").get().value, "hello");
+		} finally {
+			db.close();
+		}
+
+		// неверный ключ — понятная ошибка
+		connection.setRuntimeDbKey("00".repeat(32));
+		assert.throws(() => connection.openDb(), /неверный пароль или база повреждена/);
+		connection.setRuntimeDbKey(key);
+	});
+
+	it("disable: database is plain again, salt removed", async () => {
+		const fs = require("fs");
+		const path = require("path");
+		const dbPassword = require("../backend/security/dbPassword");
+		const connection = require("../backend/db/connection");
+
+		await dbPassword.disableDbPassword(makeDeps());
+
+		assert.equal(readHeader(), SQLITE_HEADER);
+		assert.equal(fs.existsSync(path.join(ctx.dbDir, "eb_protocols.salt")), false);
+		assert.equal(await dbPassword.getRuntimeKey(), null);
+		const db = connection.openDb();
+		try {
+			assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'probe'").get().value, "hello");
 		} finally {
 			db.close();
 		}

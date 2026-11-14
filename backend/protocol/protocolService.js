@@ -179,7 +179,11 @@ async function saveProtocol(form, options = {}) {
 			console.warn("PDF generation skipped/failed:", error.message);
 		}
 
+		const saved = db.prepare("SELECT id FROM protocol_journal WHERE protocol_year = ? AND protocol_number = ?")
+			.get(protocolYear, protocolNumber);
+
 		return {
+			id: saved ? saved.id : null,
 			protocol_year: protocolYear,
 			protocol_number: protocolNumber,
 			docx_path: outputPath,

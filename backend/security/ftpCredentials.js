@@ -18,8 +18,13 @@ async function buildFtpConfig(db) {
 	const settings = settingsRepository.getAllSettings(db);
 	const password = await getFtpPassword();
 
+	const host = String(settings[SETTINGS_KEYS.FTP_HOST] || "").trim();
+	if (!host) {
+		throw new Error("Не указан адрес FTP-сервера. Заполните настройки синхронизации.");
+	}
+
 	return {
-		host: settings[SETTINGS_KEYS.FTP_HOST] || "",
+		host,
 		port: Number(settings[SETTINGS_KEYS.FTP_PORT] || 21),
 		user: settings[SETTINGS_KEYS.FTP_USER] || "",
 		password: password || "",

@@ -2,6 +2,7 @@
 <html lang="ru" data-theme="monokai-light">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>НормаОТ: Протокол ЭБ</title>
 <style>
@@ -1696,6 +1697,7 @@ main.content,
 <div id="importErrorsModal" class="modal-backdrop"><div class="modal" style="max-width:560px"><div class="modal-head"><div><h3>Результаты импорта</h3><p class="muted" id="importErrorsSummary"></p></div><button class="ghost" onclick="document.getElementById('importErrorsModal').classList.remove('active')">Закрыть</button></div><div id="importErrorsBody" style="max-height:400px;overflow-y:auto;margin-top:12px"></div></div></div>
 <div id="toast" class="toast"></div>
 <script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function setTheme(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('eb-ui-theme',t);const s=document.getElementById('themeSelect');if(s)s.value=t;}
 setTheme(localStorage.getItem('eb-ui-theme')||'monokai-light');
 var currentWorker=null;
@@ -1710,22 +1712,35 @@ function onEmpCategoryChange(){const cat=document.getElementById('empCategory');
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)}
 window._confirmResolve=null;
 function themedConfirm(title,message,inputPlaceholder){
+return _confirmOpen(title,function(el){el.style.whiteSpace='pre-wrap';el.textContent=message==null?'':String(message);},inputPlaceholder);
+}
+function themedModalHtml(title,html){
+return _confirmOpen(title,function(el){el.style.whiteSpace='';el.innerHTML=html;});
+}
+function _confirmOpen(title,fillMessage,inputPlaceholder){
+if(window._confirmResolve)window._confirmResolve(false);
 return new Promise(resolve=>{
 const modal=document.getElementById('confirmModal');
 document.getElementById('confirmTitle').textContent=title;
-document.getElementById('confirmMessage').innerHTML=message;
+fillMessage(document.getElementById('confirmMessage'));
 const inputWrap=document.getElementById('confirmInputWrap');
 const input=document.getElementById('confirmInput');
 if(inputPlaceholder){inputWrap.style.display='block';input.value='';input.placeholder=inputPlaceholder;}else{inputWrap.style.display='none';}
 modal.classList.add('active');
 setTimeout(()=>{if(inputWrap.style.display!=='none')input.focus();},100);
 window._confirmResolve=function(ok){
+window._confirmResolve=function(){};
 modal.classList.remove('active');
 if(ok&&inputPlaceholder){resolve(input.value);}
-else{resolve(ok);}
+else{resolve(!!ok);}
 };
 });
 }
+(function(){
+const m=document.getElementById('confirmModal');
+if(m)m.addEventListener('click',function(e){if(e.target===m&&window._confirmResolve)window._confirmResolve(false);});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&m&&m.classList.contains('active')&&window._confirmResolve)window._confirmResolve(false);});
+})();
 function showScheduleMonth(monthName,list){
 const sorted=list.slice().sort((a,b)=>(a.next||'').localeCompare(b.next||''));
 const modal=document.getElementById('scheduleModal');
@@ -1736,11 +1751,11 @@ const body=document.getElementById('scheduleModalBody');
 body.innerHTML=sorted.length?
 sorted.map(w=>{
 const statusClass=w.status==='bad'||w.status==='bad_star'?'bad':w.status==='warn'?'warn':'ok';
-return `<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b style="font-size:14px">${w.fio}</b><div style="font-size:12px;color:var(--muted);margin-top:2px">${w.work} · ${w.pos||''}</div></div><span class="status ${statusClass}">${fmt(w.next)}</span></div>`;
+return `<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b style="font-size:14px">${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted);margin-top:2px">${esc(w.work)} · ${esc(w.pos||'')}</div></div><span class="status ${statusClass}">${esc(fmt(w.next))}</span></div>`;
 }).join(''):'<div class="muted" style="padding:12px 0">Нет проверок в этом месяце</div>';
 modal.classList.add('active');
 }
-function renderRights(){const rights=(window._workRightsFromDb||[]).filter(r=>r.uiName!=='ФИО'&&r.name!=='ФИО');if(!rights.length){document.getElementById('rightsBox').innerHTML='<div class="muted">Загрузите справочник прав</div>';return;}const sel=currentWorker?currentWorker.rights:[];document.getElementById('rightsBox').innerHTML=rights.map(r=>`<div class="right-item"><input type="checkbox" data-right-id="${r.id}" onchange="previewProtocol()" ${sel.includes(r.uiName)?'checked':''}><label>${r.uiName}</label></div>`).join('')}
+function renderRights(){const rights=(window._workRightsFromDb||[]).filter(r=>r.uiName!=='ФИО'&&r.name!=='ФИО');if(!rights.length){document.getElementById('rightsBox').innerHTML='<div class="muted">Загрузите справочник прав</div>';return;}const sel=currentWorker?currentWorker.rights:[];document.getElementById('rightsBox').innerHTML=rights.map(r=>`<div class="right-item"><input type="checkbox" data-right-id="${esc(r.id)}" onchange="previewProtocol()" ${sel.includes(r.uiName)?'checked':''}><label>${esc(r.uiName)}</label></div>`).join('')}
 function protocolRightsText(){if(!currentWorker)return '—';const c=[...document.querySelectorAll('#rightsBox input:checked')].map(i=>i.closest('.right-item')?.querySelector('label')?.textContent.trim()).filter(Boolean);return c.length?c.join('; '):'—'}
 function protocolFioShort(n){if(!n||n==='выберите работника')return n;const p=n.split(' ');return p.length>=3?`${p[0]} ${p[1][0]}.${p[2][0]}.`:n}
 function calcNextDate(){const d=v('checkDate');const f=v('finalMark');const hint=document.getElementById('nextHint');if(!d)return;let date=new Date(d+'T00:00:00');if(f==='Неуд'){date.setDate(date.getDate()+14);hint.textContent='Вручную, но не ранее '+fmt(date.toISOString().slice(0,10));hint.style.color='var(--danger)';document.getElementById('nextDate').value=date.toISOString().slice(0,10);}else if(f){date.setFullYear(date.getFullYear()+(currentWorker?currentWorker.period:1));hint.textContent='Авторасчет: +'+(currentWorker?currentWorker.period:1)+' год(а)';hint.style.color='var(--muted)';document.getElementById('nextDate').value=date.toISOString().slice(0,10);}else{hint.textContent='Выберите оценку';hint.style.color='var(--muted)';}previewProtocol();}
@@ -1770,7 +1785,7 @@ const m3=`${v('member3Position','')}${v('member3Position','')&&v('member3Name','
 const sf=protocolFioShort(fio);
 const el=document.getElementById('docPreview');
 if(!el)return;
-el.innerHTML=`<div class="proto-title">ПРОТОКОЛ N ${no}<br>ПРОВЕРКИ ЗНАНИЙ ПРАВИЛ РАБОТЫ В ЭЛЕКТРОУСТАНОВКАХ</div><p>Дата проверки: <span class="line">${cd}</span></p><p>Причина: <span class="line">${reason||'—'}</span></p><p>Комиссия <span class="line">${commission||'—'}</span></p><p>председатель: <span class="line">${ch||'—'}</span></p><p>члены:</p><p class="indent">${m1||'—'}</p><p class="indent">${m2||'—'}</p><p class="indent">${m3||'—'}</p><p>нормативные документы: <span class="line">${inst||'—'}</span></p><p><b>Проверяемый:</b></p><p>ФИО: <span class="line">${fio}</span></p><p>место работы: <span class="line">${wp}</span></p><p>должность: <span class="line">${pos}</span></p><p>пред. проверка: <span class="line">${prevDateDisp}</span></p><p>оценка: <span class="line">${prev||'—'}</span></p><p><b>Результаты:</b></p><p>ЭБ: <span class="line">${eb||'—'}</span> | ОТ: <span class="line">${ot||'—'}</span> | ПБ: <span class="line">${pb||'—'}</span> | другие: <span class="line">${other||'—'}</span></p><p><b>Заключение:</b> оценка <span class="line">${mark||'—'}</span>, группа <span class="line">${group||'—'}</span>, допущен как <span class="line">${cat||'—'}</span>${rightsSuffix}, напряжение <span class="line">${volt||'—'}</span>, след. проверка <span class="line">${nd}</span></p>`;
+el.innerHTML=`<div class="proto-title">ПРОТОКОЛ N ${esc(no)}<br>ПРОВЕРКИ ЗНАНИЙ ПРАВИЛ РАБОТЫ В ЭЛЕКТРОУСТАНОВКАХ</div><p>Дата проверки: <span class="line">${esc(cd)}</span></p><p>Причина: <span class="line">${esc(reason||'—')}</span></p><p>Комиссия <span class="line">${esc(commission||'—')}</span></p><p>председатель: <span class="line">${esc(ch||'—')}</span></p><p>члены:</p><p class="indent">${esc(m1||'—')}</p><p class="indent">${esc(m2||'—')}</p><p class="indent">${esc(m3||'—')}</p><p>нормативные документы: <span class="line">${esc(inst||'—')}</span></p><p><b>Проверяемый:</b></p><p>ФИО: <span class="line">${esc(fio)}</span></p><p>место работы: <span class="line">${esc(wp)}</span></p><p>должность: <span class="line">${esc(pos)}</span></p><p>пред. проверка: <span class="line">${esc(prevDateDisp)}</span></p><p>оценка: <span class="line">${esc(prev||'—')}</span></p><p><b>Результаты:</b></p><p>ЭБ: <span class="line">${esc(eb||'—')}</span> | ОТ: <span class="line">${esc(ot||'—')}</span> | ПБ: <span class="line">${esc(pb||'—')}</span> | другие: <span class="line">${esc(other||'—')}</span></p><p><b>Заключение:</b> оценка <span class="line">${esc(mark||'—')}</span>, группа <span class="line">${esc(group||'—')}</span>, допущен как <span class="line">${esc(cat||'—')}</span>${esc(rightsSuffix)}, напряжение <span class="line">${esc(volt||'—')}</span>, след. проверка <span class="line">${esc(nd)}</span></p>`;
 }
 renderRights();calcNextDate();
 </script>

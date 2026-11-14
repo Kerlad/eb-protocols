@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld("ebApi", {
 		stats: (year) => invoke("journal:stats", year),
 		exportExcel: () => invoke("journal:exportExcel"),
 		delete: (id) => invoke("journal:delete", id),
+		openFile: (id, kind) => invoke("journal:openFile", id, kind),
 		getLastByEmployee: (employeeId) => invoke("journal:getLastByEmployee", employeeId)
 	},
 	sync: {

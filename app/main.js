@@ -1,8 +1,9 @@
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
 
-const { openDb, setRuntimeDbKey, touchDbModified } = require("../backend/db/connection");
+const { openDb, setRuntimeDbKey, getRuntimeDbKey, rekeyDb, touchDbModified } = require("../backend/db/connection");
 const { initDb } = require("../backend/db/initDb");
 const employeesRepository = require("../backend/db/repositories/employeesRepository");
 const referencesRepository = require("../backend/db/repositories/referencesRepository");
@@ -18,10 +19,16 @@ const { createLocalBackup, listLocalBackups } = require("../backend/sync/backupS
 const { restoreFromBackup } = require("../backend/sync/restoreService");
 const dbPassword = require("../backend/security/dbPassword");
 const keyStorage = require("../backend/security/keyStorage");
-const { buildFtpConfig, setFtpPassword } = require("../backend/security/ftpCredentials");
+const { buildFtpConfig, setFtpPassword, getFtpPassword } = require("../backend/security/ftpCredentials");
 const paths = require("../backend/paths");
 
 let mainWindow = null;
+
+// Только один экземпляр приложения: второй запуск работает с той же базой и папкой данных
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+	app.quit();
+}
 
 function withDb(handler) {
 	const db = openDb();
@@ -71,24 +78,85 @@ function backupsDir() {
 	return path.join(DATA_DIR, "backups");
 }
 
-async function applyDbEncryptionKey() {
+function isInsideDir(baseDir, targetPath) {
+	const rel = path.relative(baseDir, targetPath);
+	return Boolean(rel) && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+function realOrSame(p) {
 	try {
-		const key = await dbPassword.getRuntimeKey();
-		if (key) {
-			setRuntimeDbKey(key);
-		} else {
-			const stored = await dbPassword.getStoredDbPassword();
-			if (stored) {
-				const { isAvailable, getAvailabilityMessage } = require("../backend/security/keyStorage");
-				if (!isAvailable()) {
-					console.warn("[security] keytar недоступен, пароль БД не может быть извлечён. БД открывается без шифрования!");
-					console.warn("[security]", getAvailabilityMessage());
-				}
-			}
+		return fs.realpathSync.native(p);
+	} catch (error) {
+		return p;
+	}
+}
+
+// Путь к файлу протокола из записи журнала; только внутри папки протоколов, только .docx/.pdf
+function resolveProtocolFile(storedPath, kind) {
+	if (!storedPath) {
+		throw new Error(kind === "pdf" ? "PDF для этого протокола не создан" : "Файл протокола не указан в журнале");
+	}
+	const baseDir = protocolsDir();
+	const stored = String(storedPath);
+	let full = path.isAbsolute(stored) ? path.resolve(stored) : path.resolve(baseDir, stored);
+	if (!fs.existsSync(full)) {
+		full = path.join(baseDir, path.basename(stored));
+	}
+	const ext = path.extname(full).toLowerCase();
+	if (ext !== ".docx" && ext !== ".pdf") {
+		throw new Error("Недопустимый тип файла протокола");
+	}
+	if (!fs.existsSync(full)) {
+		throw new Error("Файл не найден на этом компьютере: " + path.basename(stored));
+	}
+	const realFull = realOrSame(full);
+	if (!isInsideDir(realOrSame(baseDir), realFull)) {
+		throw new Error("Файл находится вне папки протоколов, открытие запрещено");
+	}
+	return realFull;
+}
+
+async function applyDbEncryptionKey() {
+	const password = await dbPassword.getStoredDbPassword();
+	if (!password) {
+		if (!keyStorage.isAvailable()) {
+			console.warn("[security]", keyStorage.getAvailabilityMessage());
+		}
+		return;
+	}
+
+	const key = await dbPassword.getRuntimeKey();
+	setRuntimeDbKey(key);
+	if (!fs.existsSync(DB_PATH)) return;
+	try {
+		openDb().close();
+		return;
+	} catch (error) {
+		// ниже — проверка, не осталась ли база открытой после версий до 1.0
+	}
+
+	// До 1.0 пароль сохранялся, но файл базы не шифровался. Шифруем его сейчас.
+	setRuntimeDbKey(null);
+	try {
+		const plain = openDb();
+		try {
+			plain.prepare("SELECT count(*) FROM sqlite_master").get();
+		} finally {
+			plain.close();
 		}
 	} catch (error) {
-		console.error("applyDbEncryptionKey failed:", error.message);
+		// база не открывается ни с ключом, ни без него — пусть initDb покажет ошибку с ключом
+		setRuntimeDbKey(key);
+		return;
 	}
+
+	createLocalBackup({ dbPath: DB_PATH, backupsDir: backupsDir(), reason: "before_encrypt" });
+	const salt = (await dbPassword.getStoredSalt()) || dbPassword.generateSalt();
+	const newKey = dbPassword.deriveKey(password, salt);
+	rekeyDb(newKey);
+	setRuntimeDbKey(newKey);
+	await dbPassword.setDbPassword(password, salt);
+	console.log("[security] База зашифрована сохранённым паролем (миграция со старой версии)");
 }
 
 async function resolveFtpProxy(config) {
@@ -199,7 +267,15 @@ function registerIpc() {
 	);
 
 	ipcMain.handle("settings:save", (event, settings) =>
-		withDb((db) => settingsRepository.saveSettings(db, settings || {}))
+		withDb((db) => {
+			// пароли в таблицу настроек не пишем никогда
+			const safe = {};
+			for (const [key, value] of Object.entries(settings || {})) {
+				if (/password/i.test(key)) continue;
+				safe[key] = value;
+			}
+			return settingsRepository.saveSettings(db, safe);
+		})
 	);
 
 	ipcMain.handle("settings:openDataDir", async () => {
@@ -216,13 +292,20 @@ function registerIpc() {
 
 	ipcMain.handle("backups:listLocal", () => listLocalBackups(backupsDir()));
 
-	ipcMain.handle("backups:createLocal", (event, reason) =>
-		createLocalBackup({ dbPath: dbPath(), backupsDir: backupsDir(), reason: reason || "manual" })
-	);
+	ipcMain.handle("backups:createLocal", (event, reason) => {
+		const safeReason = String(reason || "manual").replace(/[^a-z0-9_]/gi, "_").slice(0, 30) || "manual";
+		return createLocalBackup({ dbPath: dbPath(), backupsDir: backupsDir(), reason: safeReason });
+	});
 
-	ipcMain.handle("backups:restoreLocal", (event, backupPath) =>
-		restoreFromBackup({ backupPath, dbPath: dbPath(), backupsDir: backupsDir() })
-	);
+	// Принимает имя файла или путь, но использует только имя внутри папки резервных копий
+	ipcMain.handle("backups:restoreLocal", (event, fileName) => {
+		const name = path.basename(String(fileName || ""));
+		if (!name || path.extname(name).toLowerCase() !== ".db") {
+			throw new Error("Недопустимое имя файла резервной копии");
+		}
+		const backupPath = path.join(backupsDir(), name);
+		return restoreFromBackup({ backupPath, dbPath: dbPath(), backupsDir: backupsDir() });
+	});
 
 	ipcMain.handle("sync:getState", () =>
 		withDb((db) => require("../backend/db/repositories/syncRepository").getSyncState(db))
@@ -284,22 +367,29 @@ function registerIpc() {
 	ipcMain.handle("security:getStatus", async () => {
 		const stored = await dbPassword.getStoredDbPassword();
 		const keytarOk = keyStorage.isAvailable();
+		const ftpPassword = await getFtpPassword();
 		return {
 			keytarAvailable: keytarOk,
 			dbPasswordEnabled: Boolean(stored),
+			ftpPasswordSet: Boolean(ftpPassword),
 			warning: !keytarOk && stored ? keyStorage.getAvailabilityMessage() : null
 		};
 	});
 
+	const encryptionDeps = () => ({
+		backup: (reason) => createLocalBackup({ dbPath: dbPath(), backupsDir: backupsDir(), reason }),
+		rekey: (key) => rekeyDb(key),
+		getCurrentKey: () => getRuntimeDbKey(),
+		setRuntimeKey: (key) => setRuntimeDbKey(key)
+	});
+
 	ipcMain.handle("security:enableDbPassword", async (event, password) => {
-		await dbPassword.setDbPassword(password);
-		setRuntimeDbKey(dbPassword.deriveKey(password));
+		await dbPassword.enableDbPassword(password, encryptionDeps());
 		return { ok: true };
 	});
 
 	ipcMain.handle("security:disableDbPassword", async () => {
-		await dbPassword.clearDbPassword();
-		setRuntimeDbKey(null);
+		await dbPassword.disableDbPassword(encryptionDeps());
 		return { ok: true };
 	});
 
@@ -378,11 +468,36 @@ function registerIpc() {
 		})
 	);
 
+	// Только предпросмотр: файл Preview_*.docx во временной папке ОС
 	ipcMain.handle("shell:openFile", async (event, filePath) => {
-		if (!filePath || !fs.existsSync(filePath)) {
-			throw new Error("Файл не найден: " + filePath);
+		if (!filePath || typeof filePath !== "string" || !fs.existsSync(filePath)) {
+			throw new Error("Файл не найден");
 		}
-		await shell.openPath(filePath);
+		const full = realOrSame(path.resolve(filePath));
+		const name = path.basename(full);
+		if (!isInsideDir(realOrSame(os.tmpdir()), full) || !name.startsWith("Preview_") || path.extname(name).toLowerCase() !== ".docx") {
+			throw new Error("Открытие этого файла запрещено");
+		}
+		const error = await shell.openPath(full);
+		if (error) throw new Error("Не удалось открыть файл: " + error);
+		return { ok: true };
+	});
+
+	// kind: "docx" | "pdf"; путь берётся из журнала по id и проверяется на вхождение в папку протоколов
+	ipcMain.handle("journal:openFile", async (event, id, kind) => {
+		if (kind !== "docx" && kind !== "pdf") {
+			throw new Error("Неизвестный тип файла: " + kind);
+		}
+		const row = withDb((db) =>
+			db.prepare("SELECT docx_path, pdf_path FROM protocol_journal WHERE id = ?").get(Number(id))
+		);
+		if (!row) throw new Error("Запись журнала не найдена");
+		const full = resolveProtocolFile(kind === "pdf" ? row.pdf_path : row.docx_path, kind);
+		if (path.extname(full).toLowerCase() !== "." + kind) {
+			throw new Error("Тип файла не соответствует записи журнала");
+		}
+		const error = await shell.openPath(full);
+		if (error) throw new Error("Не удалось открыть файл: " + error);
 		return { ok: true };
 	});
 
@@ -489,8 +604,20 @@ function createWindow() {
 		webPreferences: {
 			preload: path.join(__dirname, "preload.js"),
 			contextIsolation: true,
-			nodeIntegration: false
+			nodeIntegration: false,
+			sandbox: true
 		}
+	});
+
+	// Новые окна запрещены; ссылки на сайт программы открываются в браузере
+	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+		if (/^https:\/\/normaot\.ru(\/|$)/i.test(String(url))) {
+			shell.openExternal(url);
+		}
+		return { action: "deny" };
+	});
+	mainWindow.webContents.on("will-navigate", (event) => {
+		event.preventDefault();
 	});
 
 	mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
@@ -500,15 +627,29 @@ function createWindow() {
 	});
 }
 
-app.whenReady().then(async () => {
+app.on("second-instance", () => {
+	if (mainWindow) {
+		if (mainWindow.isMinimized()) mainWindow.restore();
+		mainWindow.show();
+		mainWindow.focus();
+	}
+});
+
+if (gotSingleInstanceLock) app.whenReady().then(async () => {
 	console.log(`[startup] DB path: ${DB_PATH}`);
 	console.log(`[startup] Data dir: ${DATA_DIR}`);
-	await applyDbEncryptionKey();
-
 	try {
+		await applyDbEncryptionKey();
 		initDb();
 	} catch (error) {
 		console.error("initDb failed:", error.message);
+		let message = error.message + "\n\nПуть: " + DB_PATH;
+		if (/not a database/i.test(error.message)) {
+			message += "\n\nВозможно, база зашифрована паролем, а пароль не получен из хранилища ключей, либо файл повреждён.";
+		}
+		dialog.showErrorBox("База данных не открывается", message);
+		app.quit();
+		return;
 	}
 
 	registerIpc();
