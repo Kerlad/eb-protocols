@@ -1365,3 +1365,102 @@ describe("T2.1: import keeps real dates", () => {
 		}
 	});
 });
+
+describe("protocol save validation and rollback (T2.4)", () => {
+	const fs = require("fs");
+	const path = require("path");
+	const ctx = useTempDataDir("eb-test-save-protocol-", ["protocol/protocolService.js"]);
+	let protocolsDir;
+
+	const validForm = (extra = {}) => ({
+		employee_id: null,
+		protocol_number: 1,
+		check_date: "2026-06-15",
+		next_check_date: "2027-06-15",
+		full_name_snapshot: "Сидоров Сергей Сергеевич",
+		reason: "Очередная",
+		electrical_safety_group: "III",
+		final_result: "сдал",
+		commission_name: "Комиссия",
+		chairman_name: "Иванов И.И.",
+		member_1_name: "Петров П.П.",
+		...extra
+	});
+
+	const journalCount = () => {
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try { return db.prepare("SELECT count(*) AS n FROM protocol_journal").get().n; } finally { db.close(); }
+	};
+
+	before(() => {
+		ctx.setup();
+		require("../backend/db/initDb").initDb();
+		protocolsDir = path.join(ctx.tmpDir, "protocols");
+	});
+	after(() => ctx.teardown());
+
+	it("validateProtocolForm lists all missing fields in Russian", () => {
+		const { validateProtocolForm } = require("../backend/protocol/protocolService");
+		assert.throws(
+			() => validateProtocolForm(validForm({ electrical_safety_group: "", chairman_name: "" })),
+			(e) => /Не заполнены поля: группа ЭБ, председатель комиссии/.test(e.message)
+		);
+		assert.doesNotThrow(() => validateProtocolForm(validForm()));
+	});
+
+	it("validateProtocolForm rejects next_check_date <= check_date and bad number", () => {
+		const { validateProtocolForm } = require("../backend/protocol/protocolService");
+		assert.throws(() => validateProtocolForm(validForm({ next_check_date: "2026-06-15" })), /дата следующей проверки/);
+		assert.throws(() => validateProtocolForm(validForm({ next_check_date: "2026-01-01" })), /дата следующей проверки/);
+		assert.throws(() => validateProtocolForm(validForm({ next_check_date: "" })), /Не заполнены поля: дата следующей проверки/);
+		assert.throws(() => validateProtocolForm(validForm({ protocol_number: 0 })), /номер протокола/);
+		assert.throws(() => validateProtocolForm(validForm({ protocol_number: 1.5 })), /номер протокола/);
+		assert.throws(() => validateProtocolForm(validForm({ protocol_number: "abc" })), /номер протокола/);
+		assert.throws(() => validateProtocolForm(validForm({ electrical_safety_group: "I" })), /группа ЭБ/);
+	});
+
+	it("saveProtocol with empty group throws, no journal row and no DOCX", async () => {
+		const { saveProtocol } = require("../backend/protocol/protocolService");
+		await assert.rejects(
+			saveProtocol(validForm({ electrical_safety_group: "" }), { protocolsDir }),
+			/группа ЭБ/
+		);
+		assert.equal(journalCount(), 0);
+		assert.equal(fs.existsSync(protocolsDir) ? fs.readdirSync(protocolsDir).length : 0, 0);
+	});
+
+	it("DOCX failure removes journal row and restores employee fields", async () => {
+		const docxGenerator = require("../backend/protocol/docxGenerator");
+		const employeesRepository = require("../backend/db/repositories/employeesRepository");
+		const { openDb } = require("../backend/db/connection");
+		const { saveProtocol } = require("../backend/protocol/protocolService");
+
+		let db = openDb();
+		let empId;
+		try {
+			empId = employeesRepository.createEmployee(db, {
+				last_name: "Тестов", first_name: "Тест", middle_name: "Тестович", full_name: "Тестов Тест Тестович",
+				last_check_date: "2025-06-15", next_check_date: "2026-06-15", last_result: "сдал"
+			});
+			empId = typeof empId === "object" && empId !== null ? (empId.id ?? empId.lastInsertRowid) : empId;
+		} finally { db.close(); }
+
+		const original = docxGenerator.renderProtocolDocx;
+		docxGenerator.renderProtocolDocx = () => { throw new Error("docx boom"); };
+		try {
+			await assert.rejects(saveProtocol(validForm({ employee_id: empId, final_result: "не сдал" }), { protocolsDir }), /docx boom/);
+		} finally {
+			docxGenerator.renderProtocolDocx = original;
+		}
+
+		assert.equal(journalCount(), 0);
+		db = openDb();
+		try {
+			const emp = employeesRepository.findById(db, empId);
+			assert.equal(emp.last_check_date, "2025-06-15");
+			assert.equal(emp.next_check_date, "2026-06-15");
+			assert.equal(emp.last_result, "сдал");
+		} finally { db.close(); }
+	});
+});

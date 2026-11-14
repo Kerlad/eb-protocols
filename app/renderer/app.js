@@ -257,12 +257,17 @@
 		});
 	}
 
+	let protocolSaving = false;
 	window.saveProtocol = async function () {
+		if (protocolSaving) return;
 		if (!window.currentWorker) { toast("Сначала выберите работника"); return; }
 		clearValidationHighlights();
 		const errors = validateProtocolForm();
 		if (errors.length) { toast("Заполните: " + errors.join(", ")); return; }
 		const form = buildProtocolForm();
+		const saveBtn = document.querySelector('button[onclick="saveProtocol()"]');
+		protocolSaving = true;
+		if (saveBtn) saveBtn.disabled = true;
 		try {
 			const res = await api.protocols.save(form);
 			saveProtocolDefaults();
@@ -277,7 +282,13 @@
 			await refreshProtocolNumber();
 			await window.renderEmployees();
 			await renderJournal();
-		} catch (e) { toast("Ошибка сохранения: " + e.message); }
+		} catch (e) {
+			toast("Ошибка сохранения: " + e.message);
+			try { await refreshProtocolNumber(); } catch (_) {}
+		} finally {
+			protocolSaving = false;
+			if (saveBtn) saveBtn.disabled = false;
+		}
 	};
 
 	window.editingRefIds = {

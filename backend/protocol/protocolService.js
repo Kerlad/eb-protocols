@@ -1,11 +1,13 @@
 const path = require("path");
+const fs = require("fs");
 const { openDb, touchDbModified } = require("../db/connection");
 const { getProtocolYear, getNextProtocolNumber, assertProtocolNumberAvailable } = require("./protocolNumbering");
 const { buildProtocolPlaceholderMap } = require("./placeholderMap");
-const { renderProtocolDocx, buildOutputFileName } = require("./docxGenerator");
+const docxGenerator = require("./docxGenerator");
+const { buildOutputFileName } = docxGenerator;
 const employeesRepository = require("../db/repositories/employeesRepository");
 const syncRepository = require("../db/repositories/syncRepository");
-const { addYearsLocal, todayLocal } = require("../utils/dateUtils");
+const { addYearsLocal, todayLocal, isIsoDate } = require("../utils/dateUtils");
 
 function now() {
 	return new Date().toISOString();
@@ -56,7 +58,43 @@ function getProtocolDraft(form) {
 	}
 }
 
+function validateProtocolForm(form) {
+	form = form || {};
+	const missing = [];
+	const invalid = [];
+	const has = (v) => v !== undefined && v !== null && String(v).trim() !== "";
+
+	if (!has(form.full_name_snapshot)) missing.push("ФИО работника");
+
+	let checkOk = false;
+	if (!has(form.check_date)) missing.push("дата проверки");
+	else if (!isIsoDate(form.check_date)) invalid.push("дата проверки");
+	else checkOk = true;
+
+	const num = Number(form.protocol_number);
+	if (!has(form.protocol_number)) missing.push("номер протокола");
+	else if (!Number.isInteger(num) || num <= 0) invalid.push("номер протокола (должен быть целым числом больше 0)");
+
+	if (!has(form.electrical_safety_group)) missing.push("группа ЭБ");
+	else if (!["II", "III", "IV", "V"].includes(String(form.electrical_safety_group).trim())) invalid.push("группа ЭБ (допустимо II, III, IV, V)");
+
+	if (!has(form.final_result)) missing.push("итоговый результат");
+	if (!has(form.commission_name)) missing.push("наименование комиссии");
+	if (!has(form.chairman_name)) missing.push("председатель комиссии");
+	if (!has(form.member_1_name)) missing.push("член комиссии 1");
+
+	if (!has(form.next_check_date)) missing.push("дата следующей проверки");
+	else if (!isIsoDate(form.next_check_date)) invalid.push("дата следующей проверки");
+	else if (checkOk && form.next_check_date <= form.check_date) invalid.push("дата следующей проверки (должна быть позже даты проверки)");
+
+	const parts = [];
+	if (missing.length) parts.push("Не заполнены поля: " + missing.join(", "));
+	if (invalid.length) parts.push("Некорректные поля: " + invalid.join(", "));
+	if (parts.length) throw new Error(parts.join(". "));
+}
+
 async function saveProtocol(form, options = {}) {
+	validateProtocolForm(form);
 	const db = openDb();
 
 	try {
@@ -115,13 +153,10 @@ async function saveProtocol(form, options = {}) {
 		const protocolsDir = options.protocolsDir || require("../paths").getProtocolsDir();
 		const outputPath = path.join(protocolsDir, buildOutputFileName(record));
 
-		renderProtocolDocx({
-			form: record,
-			placeholderMap,
-			outputPath
-		});
-
 		record.docx_path = outputPath;
+
+		// Прежние значения работника: нужны, чтобы откатить обновление, если DOCX не создался
+		const prevEmployee = record.employee_id ? employeesRepository.findById(db, record.employee_id) : null;
 
 		const tx = db.transaction(() => {
 			const createdAt = now();
@@ -168,6 +203,35 @@ async function saveProtocol(form, options = {}) {
 
 		tx();
 
+		try {
+			docxGenerator.renderProtocolDocx({
+				form: record,
+				placeholderMap,
+				outputPath
+			});
+		} catch (error) {
+			// DOCX не создан: убираем запись журнала и возвращаем прежние данные работника
+			db.prepare("DELETE FROM protocol_journal WHERE protocol_year = ? AND protocol_number = ?")
+				.run(protocolYear, protocolNumber);
+			if (prevEmployee) {
+				employeesRepository.updateEmployee(db, prevEmployee.id, {
+					last_check_date: prevEmployee.last_check_date,
+					next_check_date: prevEmployee.next_check_date,
+					last_result: prevEmployee.last_result
+				});
+			}
+			try {
+				const stats = syncRepository.getLocalDbStats(db);
+				syncRepository.updateSyncState(db, {
+					local_journal_count_total: stats.journal_count_total,
+					local_journal_count_current_year: stats.journal_count_current_year,
+					local_max_protocol_number_current_year: stats.max_protocol_number_current_year
+				});
+			} catch (e) { /* не критично */ }
+			try { fs.unlinkSync(outputPath); } catch (e) { /* файла может не быть */ }
+			throw error;
+		}
+
 		// Generate PDF asynchronously outside of the SQL transaction block
 		let pdfPath = null;
 		try {
@@ -197,6 +261,7 @@ async function saveProtocol(form, options = {}) {
 module.exports = {
 	getProtocolDraft,
 	saveProtocol,
+	validateProtocolForm,
 	computeNextCheckDate,
 	generatePreviewDocx
 };
