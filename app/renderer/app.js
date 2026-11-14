@@ -703,6 +703,7 @@
 			if (el("dashMaxNum")) el("dashMaxNum").textContent = stats.maxNumber ? `следующий №${stats.maxNumber + 1}` : "—";
 			if (el("dashUpcoming")) el("dashUpcoming").textContent = stats.upcoming;
 			if (el("dashOverdue")) el("dashOverdue").textContent = stats.overdue;
+			if (el("dashNoDate")) el("dashNoDate").textContent = Number(stats.noDate) || 0;
 			if (el("dashTotal")) el("dashTotal").textContent = stats.total;
 			if (el("dashYear")) el("dashYear").textContent = y;
 			

@@ -1303,3 +1303,65 @@ describe("dateUtils (T2.11)", () => {
 		}
 	});
 });
+
+describe("T2.1: import keeps real dates", () => {
+	const ctx = useTempDataDir("eb-test-t21-", ["import/excelImporter.js"]);
+	const path = require("path");
+	const fs = require("fs");
+	const ExcelJS = require("exceljs");
+	const excelPath = path.join(ctx.tmpDir, "t21.xlsx");
+
+	before(async () => {
+		ctx.setup();
+		const Database = require("better-sqlite3-multiple-ciphers");
+		const preDb = new Database(path.join(ctx.dbDir, "eb_protocols.db"));
+		preDb.exec(fs.readFileSync(path.join(__dirname, "..", "backend", "db", "schema.sql"), "utf8"));
+		preDb.prepare("INSERT INTO sync_state (id, db_version, sync_revision, sync_status) VALUES (1, 'test', 0, 'test')").run();
+		preDb.close();
+
+		const workbook = new ExcelJS.Workbook();
+		const sheet = workbook.addWorksheet("Data");
+		sheet.getRow(1).values = ["Фамилия", "Имя", "Отчество", "Место работы", "Должность", "Объем знаний", "Категория персонала", "Группа", "Дата проверки", "Дата след. проверки", "Периодичность"];
+		sheet.getRow(2).values = ["Безданов", "Иван", "Иванович", "Участок №1", "Электромонтер", "ЭЧТ", "Оперативный", "IV", "", "", 1];
+		sheet.getRow(3).values = ["Просрочев", "Петр", "Петрович", "Участок №2", "Инженер", "ЭЧТ", "Оперативный", "III", new Date("2020-01-15"), new Date("2021-01-15"), 1];
+		await workbook.xlsx.writeFile(excelPath);
+	});
+
+	after(() => ctx.teardown());
+
+	it("row without date keeps last_check_date NULL, overdue next date is unchanged", async () => {
+		const { importExcel } = require("../backend/import/excelImporter");
+		await importExcel(excelPath);
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try {
+			const a = db.prepare("SELECT * FROM employees WHERE full_name LIKE 'Безданов%'").get();
+			assert.equal(a.last_check_date, null);
+			assert.equal(a.next_check_date, null);
+			assert.notEqual(a.note, "DATE_DEFERRED");
+			const b = db.prepare("SELECT * FROM employees WHERE full_name LIKE 'Просрочев%'").get();
+			assert.equal(b.next_check_date, "2021-01-15");
+			assert.notEqual(b.note, "DATE_DEFERRED");
+		} finally {
+			db.close();
+		}
+	});
+
+	it("migration clears 2000-01-01 and DATE_DEFERRED, logs an event once", () => {
+		const { migrateFakeDates } = require("../backend/db/initDb");
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try {
+			db.prepare("UPDATE employees SET last_check_date = '2000-01-01', note = 'DATE_DEFERRED'").run();
+			const n = db.prepare("SELECT COUNT(*) AS c FROM employees").get().c;
+			assert.equal(migrateFakeDates(db), n);
+			assert.equal(db.prepare("SELECT COUNT(*) AS c FROM employees WHERE last_check_date = '2000-01-01' OR note = 'DATE_DEFERRED'").get().c, 0);
+			const events = () => db.prepare("SELECT COUNT(*) AS c FROM app_events WHERE event_type = 'migration_fake_dates'").get().c;
+			assert.equal(events(), 1);
+			assert.equal(migrateFakeDates(db), 0);
+			assert.equal(events(), 1);
+		} finally {
+			db.close();
+		}
+	});
+});

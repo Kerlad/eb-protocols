@@ -570,7 +570,8 @@ function registerIpc() {
 			const now = todayLocal();
 			const in30 = addDaysLocal(now, 30);
 			const upcoming = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND next_check_date IS NOT NULL AND next_check_date >= ? AND next_check_date <= ?").get(now, in30).c;
-			const overdue = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND (next_check_date < ? OR note = 'DATE_DEFERRED')").get(now).c;
+			const overdue = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND next_check_date < ?").get(now).c;
+			const noDate = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND next_check_date IS NULL").get().c;
 			const actual = db.prepare("SELECT COUNT(*) as c FROM employees WHERE status != 'deleted' AND next_check_date IS NOT NULL AND next_check_date > ?").get(in30).c;
 			
 			const monthCounts = [];
@@ -580,7 +581,7 @@ function registerIpc() {
 				monthCounts.push(count);
 			}
 			
-			return { total, journalCount: journalStats.count, maxNumber: journalStats.max_num, upcoming, overdue, actual, monthCounts, year };
+			return { total, journalCount: journalStats.count, maxNumber: journalStats.max_num, upcoming, overdue, noDate, actual, monthCounts, year };
 		})
 	);
 }

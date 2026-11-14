@@ -89,33 +89,19 @@ function normalizeDate(value) {
 			const employeeIdBySourceRow = new Map();
 
 			for (const employee of data.employees) {
-				let lastCheck = normalizeDate(employee.last_check_date);
+				const lastCheck = normalizeDate(employee.last_check_date);
 				let nextCheck = normalizeDate(employee.next_check_date);
-				let dateDeferred = false;
 
-				if (!lastCheck) {
-					lastCheck = "2000-01-01";
-				}
-
-				if (lastCheck === "2000-01-01") {
-					nextCheck = addDaysLocal(todayLocal(), 14);
-					dateDeferred = true;
-				} else if (!nextCheck) {
-					const period = (employee.personnel_category || "").includes("Административно") ? 3 : 1;
-					nextCheck = addYearsLocal(lastCheck, period);
-				}
-
-				const today = todayLocal();
-				if (nextCheck && nextCheck < today) {
-					nextCheck = addDaysLocal(today, 14);
-					dateDeferred = true;
+				// T2.1: даты берутся из файла как есть; пустая остаётся null, просрочка не сдвигается
+				if (lastCheck && !nextCheck) {
+					nextCheck = addYearsLocal(lastCheck, Number(employee.check_period_years) || 1);
 				}
 
 				const normalizedEmployee = {
 					...employee,
 					last_check_date: lastCheck,
 					next_check_date: nextCheck,
-					note: dateDeferred ? "DATE_DEFERRED" : (employee.note || null)
+					note: employee.note || null
 				};
 
 				const result = employeesRepository.upsertEmployee(db, normalizedEmployee);

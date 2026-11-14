@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { openDb, touchDbOpened } = require("./connection");
 const pkg = require("../../package.json");
+const eventsRepository = require("./repositories/eventsRepository");
 
 const SETTINGS_KEY_MIGRATION = [
 	["ftp_host", "ftp.host"],
@@ -29,6 +30,25 @@ function migrateSettings(db) {
 	tx();
 }
 
+// T2.1: убрать поддельные даты, которые ставили прежние версии импорта (2000-01-01, DATE_DEFERRED)
+function migrateFakeDates(db) {
+	let shifted = 0;
+	const tx = db.transaction(() => {
+		db.prepare("UPDATE employees SET last_check_date = NULL WHERE last_check_date = '2000-01-01'").run();
+		shifted = db.prepare("UPDATE employees SET note = NULL WHERE note = 'DATE_DEFERRED'").run().changes;
+		if (shifted > 0) {
+			eventsRepository.addEvent(db, {
+				event_type: "migration_fake_dates",
+				level: "warning",
+				message: `У ${shifted} записей сроки проверки были сдвинуты прежней версией импорта. Перепроверьте даты у этих работников.`,
+				details: { count: shifted }
+			});
+		}
+	});
+	tx();
+	return shifted;
+}
+
 function initDb() {
 	const db = openDb();
 	try {
@@ -45,6 +65,7 @@ function initSchema(db) {
 	db.exec(schema);
 
 	migrateSettings(db);
+	migrateFakeDates(db);
 
 	// Migration: add updated_at to reference tables if missing
 	const tables = ['departments', 'knowledge_scopes', 'commission_chairmen', 'commission_members', 'commissions', 'work_rights'];
@@ -74,4 +95,4 @@ if (require.main === module) {
 	initDb();
 }
 
-module.exports = { initDb, migrateSettings };
+module.exports = { initDb, migrateSettings, migrateFakeDates };
