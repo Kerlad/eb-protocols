@@ -242,6 +242,20 @@ async function uploadFile(config, localPath, remoteName) {
 	});
 }
 
+// T2.9: замена файла на сервере после выгрузки под временным именем
+async function replaceFile(config, tempName, remoteName) {
+	return withClient(config, async (client) => {
+		const remoteDir = normalizeRemotePath(config.remoteDir || "/");
+		await client.ensureDir(remoteDir);
+		const list = await client.list();
+		if (list.some((entry) => entry.name === remoteName)) {
+			await client.remove(remoteName);
+		}
+		await client.rename(tempName, remoteName);
+		return { ok: true, remoteName };
+	});
+}
+
 async function downloadFile(config, remoteName, localPath) {
 	return withClient(config, async (client) => {
 		const remoteDir = normalizeRemotePath(config.remoteDir || "/");
@@ -267,6 +281,7 @@ module.exports = {
 	isNoProxy,
 	testConnection,
 	uploadFile,
+	replaceFile,
 	downloadFile,
 	fileExists,
 	diagnoseConnection

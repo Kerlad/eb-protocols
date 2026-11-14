@@ -6,9 +6,11 @@ const sftpClient = require("./sftpClient");
 const { compareDbState } = require("./conflictDetector");
 const { createLocalBackup } = require("./backupService");
 const syncRepository = require("../db/repositories/syncRepository");
+const { snapshotDbFile, verifyDbFile, openDbFile, closeDb } = require("../db/connection");
 
 const REMOTE_DB_NAME = "eb_protocols.db";
 const REMOTE_META_NAME = "eb_protocols.meta.json";
+const REMOTE_DB_TEMP_NAME = REMOTE_DB_NAME + ".uploading";
 
 function getTransport(config) {
 	const proxy = config._proxyInfo;
@@ -75,16 +77,24 @@ async function getStatus(options) {
 async function uploadDb(options) {
 	const { db, config, dbPath, tempDir } = options;
 	const localMeta = buildLocalMeta(db);
-	const metaPath = path.join(tempDir || os.tmpdir(), `local_${Date.now()}.meta.json`);
+	const workDir = tempDir || os.tmpdir();
+	const stamp = Date.now();
+	const metaPath = path.join(workDir, `local_${stamp}.meta.json`);
+	const snapshotPath = path.join(workDir, `upload_${stamp}.db`);
 	const transport = getTransport(config);
 
 	fs.writeFileSync(metaPath, JSON.stringify(localMeta, null, 2), "utf8");
 
 	try {
-		await transport.uploadFile(config, dbPath, REMOTE_DB_NAME);
+		// T2.9: выгружается согласованный снимок под временным именем, затем переименование —
+		// второй компьютер не скачает недописанный файл
+		snapshotDbFile(dbPath, snapshotPath);
+		await transport.uploadFile(config, snapshotPath, REMOTE_DB_TEMP_NAME);
+		await transport.replaceFile(config, REMOTE_DB_TEMP_NAME, REMOTE_DB_NAME);
 		await transport.uploadFile(config, metaPath, REMOTE_META_NAME);
 	} finally {
 		try { fs.unlinkSync(metaPath); } catch (e) { /* ignore */ }
+		try { fs.unlinkSync(snapshotPath); } catch (e) { /* ignore */ }
 	}
 
 	const info = deviceInfo();
@@ -101,23 +111,40 @@ async function uploadDb(options) {
 }
 
 async function downloadDb(options) {
-	const { db, config, dbPath, backupsDir } = options;
+	const { config, dbPath, backupsDir } = options;
 	const transport = getTransport(config);
-
-	if (fs.existsSync(dbPath)) {
-		createLocalBackup({ dbPath, backupsDir, reason: "before_download" });
-	}
 
 	const exists = await transport.fileExists(config, REMOTE_DB_NAME);
 	if (!exists) {
 		throw new Error("На сервере нет файла базы данных");
 	}
 
+	// T2.9: качаем во временный файл; рабочая база меняется только после проверки
 	fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-	await transport.downloadFile(config, REMOTE_DB_NAME, dbPath);
+	const tmpPath = dbPath + ".download";
+	try {
+		try { fs.unlinkSync(tmpPath); } catch (e) { /* ignore */ }
+		await transport.downloadFile(config, REMOTE_DB_NAME, tmpPath);
+		try {
+			verifyDbFile(tmpPath);
+		} catch (error) {
+			throw new Error(`Скачанная база не прошла проверку, рабочая база не изменена. ${error.message}`);
+		}
 
-	const { openDb } = require("../db/connection");
-	const freshDb = openDb();
+		if (fs.existsSync(dbPath)) {
+			createLocalBackup({ dbPath, backupsDir, reason: "before_download" });
+		}
+		closeDb();
+		fs.renameSync(tmpPath, dbPath);
+	} catch (error) {
+		try { fs.unlinkSync(tmpPath); } catch (e) { /* ignore */ }
+		throw error;
+	}
+
+	// миграции схемы для базы, выгруженной старой версией
+	require("../db/initDb").initDb();
+
+	const freshDb = openDbFile(dbPath);
 	try {
 		const info = deviceInfo();
 		syncRepository.updateSyncState(freshDb, {
@@ -138,6 +165,7 @@ async function downloadDb(options) {
 module.exports = {
 	REMOTE_DB_NAME,
 	REMOTE_META_NAME,
+	REMOTE_DB_TEMP_NAME,
 	buildLocalMeta,
 	fetchRemoteMeta,
 	getStatus,

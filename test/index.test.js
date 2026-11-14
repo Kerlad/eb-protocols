@@ -1139,3 +1139,123 @@ describe("database encryption", () => {
 		}
 	});
 });
+
+describe("T2.9 safe download, upload, backup", () => {
+	const fs = require("fs");
+	const path = require("path");
+	const ctx = useTempDataDir("eb-test-sync-safety-", ["sync/backupService.js", "sync/syncService.js", "sync/restoreService.js"]);
+	const ftpClient = require("../backend/sync/ftpClient");
+	const originals = {};
+	const config = { transport: "ftp", host: "test" };
+	let dbPath, backupsDir;
+
+	const countEmployees = (file) => {
+		const { openDbFile } = require("../backend/db/connection");
+		const db = openDbFile(file);
+		try { return db.prepare("SELECT count(*) AS n FROM employees").get().n; } finally { db.close(); }
+	};
+
+	before(() => {
+		ctx.setup();
+		for (const name of ["uploadFile", "replaceFile", "downloadFile", "fileExists"]) originals[name] = ftpClient[name];
+		require("../backend/db/initDb").initDb();
+		dbPath = require("../backend/db/connection").DB_PATH;
+		backupsDir = path.join(ctx.dbDir, "backups");
+	});
+
+	after(() => {
+		Object.assign(ftpClient, originals);
+		ctx.teardown();
+	});
+
+	it("backup is a readable snapshot and old backups are pruned to 30", () => {
+		const { createLocalBackup } = require("../backend/sync/backupService");
+		fs.mkdirSync(backupsDir, { recursive: true });
+		const old = new Date(2020, 0, 1);
+		for (let i = 0; i < 35; i++) {
+			const f = path.join(backupsDir, `eb_protocols_old_${String(i).padStart(2, "0")}.db`);
+			fs.writeFileSync(f, "x");
+			fs.utimesSync(f, old, old);
+		}
+		const result = createLocalBackup({ dbPath, backupsDir, reason: "test" });
+		assert.equal(result.method, "snapshot");
+		assert.ok(fs.existsSync(result.path));
+		assert.equal(fs.readdirSync(backupsDir).filter((n) => n.endsWith(".db")).length, 30);
+		assert.equal(countEmployees(result.path), countEmployees(dbPath));
+	});
+
+	it("corrupt download leaves the working database untouched", async () => {
+		const { downloadDb } = require("../backend/sync/syncService");
+		const before = fs.readFileSync(dbPath);
+		ftpClient.fileExists = async () => true;
+		ftpClient.downloadFile = async (cfg, remote, local) => { fs.writeFileSync(local, Buffer.alloc(8192, 7)); };
+		await assert.rejects(downloadDb({ config, dbPath, backupsDir }), /не прошла проверку/);
+		assert.ok(before.equals(fs.readFileSync(dbPath)));
+		assert.equal(fs.existsSync(dbPath + ".download"), false);
+	});
+
+	it("interrupted download leaves the working database untouched", async () => {
+		const { downloadDb } = require("../backend/sync/syncService");
+		const before = fs.readFileSync(dbPath);
+		ftpClient.fileExists = async () => true;
+		ftpClient.downloadFile = async (cfg, remote, local) => {
+			fs.writeFileSync(local, before.subarray(0, 100));
+			throw new Error("connection reset");
+		};
+		await assert.rejects(downloadDb({ config, dbPath, backupsDir }), /connection reset/);
+		assert.ok(before.equals(fs.readFileSync(dbPath)));
+		assert.equal(fs.existsSync(dbPath + ".download"), false);
+	});
+
+	it("valid download replaces the working database after a backup", async () => {
+		const { downloadDb } = require("../backend/sync/syncService");
+		const { snapshotDbFile, openDbFile } = require("../backend/db/connection");
+		const remoteFile = path.join(ctx.tmpDir, "remote.db");
+		snapshotDbFile(dbPath, remoteFile);
+		const remote = openDbFile(remoteFile);
+		remote.prepare("INSERT INTO employees (last_name, first_name, full_name, created_at, updated_at) VALUES ('Удалённый', 'Работник', 'Удалённый Работник', '2026-01-01', '2026-01-01')").run();
+		remote.close();
+		const expected = countEmployees(remoteFile);
+
+		ftpClient.fileExists = async () => true;
+		ftpClient.downloadFile = async (cfg, remoteName, local) => { fs.copyFileSync(remoteFile, local); };
+		const result = await downloadDb({ config, dbPath, backupsDir });
+		assert.equal(result.ok, true);
+		assert.equal(countEmployees(dbPath), expected);
+		assert.ok(fs.readdirSync(backupsDir).some((n) => n.includes("before_download")));
+	});
+
+	it("upload sends a snapshot under a temporary name, then renames", async () => {
+		const { uploadDb, REMOTE_DB_NAME, REMOTE_DB_TEMP_NAME, REMOTE_META_NAME } = require("../backend/sync/syncService");
+		const { openDbFile } = require("../backend/db/connection");
+		const calls = [];
+		const uploaded = path.join(ctx.tmpDir, "uploaded.db");
+		ftpClient.uploadFile = async (cfg, local, remoteName) => {
+			calls.push(["upload", remoteName]);
+			if (remoteName === REMOTE_DB_TEMP_NAME) fs.copyFileSync(local, uploaded);
+		};
+		ftpClient.replaceFile = async (cfg, tempName, remoteName) => { calls.push(["rename", tempName, remoteName]); };
+		const db = openDbFile(dbPath);
+		try {
+			await uploadDb({ db, config, dbPath, tempDir: ctx.tmpDir });
+		} finally {
+			db.close();
+		}
+		assert.deepEqual(calls, [
+			["upload", REMOTE_DB_TEMP_NAME],
+			["rename", REMOTE_DB_TEMP_NAME, REMOTE_DB_NAME],
+			["upload", REMOTE_META_NAME]
+		]);
+		assert.equal(countEmployees(uploaded), countEmployees(dbPath));
+		assert.equal(fs.readdirSync(ctx.tmpDir).some((n) => n.startsWith("upload_")), false);
+	});
+
+	it("restore rejects a corrupt backup file", () => {
+		const { restoreFromBackup } = require("../backend/sync/restoreService");
+		const bad = path.join(backupsDir, "broken.db");
+		fs.writeFileSync(bad, Buffer.alloc(4096, 1));
+		const before = fs.readFileSync(dbPath);
+		assert.throws(() => restoreFromBackup({ backupPath: bad, dbPath, backupsDir }));
+		assert.ok(before.equals(fs.readFileSync(dbPath)));
+	});
+});

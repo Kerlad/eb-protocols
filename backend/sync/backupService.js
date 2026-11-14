@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const KEEP_BACKUPS = 30;
+
 function timestamp() {
 	return new Date().toISOString().replace(/[:.]/g, "-");
 }
@@ -25,9 +27,21 @@ function createLocalBackup(options) {
 	const fileName = `eb_protocols_${reason}_${timestamp()}.db`;
 	const backupPath = path.join(backupsDir, fileName);
 
-	fs.copyFileSync(dbPath, backupPath);
+	// T2.9: снимок через SQLite (согласованное состояние, шифрование сохраняется).
+	// Если база не открывается (повреждена, перед восстановлением) — копия файла как есть.
+	let method = "snapshot";
+	try {
+		const { snapshotDbFile } = require("../db/connection");
+		snapshotDbFile(dbPath, backupPath);
+	} catch (error) {
+		method = "copy";
+		fs.copyFileSync(dbPath, backupPath);
+	}
+
+	pruneBackups(backupsDir, KEEP_BACKUPS);
 
 	return {
+		method,
 		path: backupPath,
 		fileName,
 		reason,
@@ -53,7 +67,7 @@ function listLocalBackups(backupsDir) {
 		.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-function pruneBackups(backupsDir, keep = 30) {
+function pruneBackups(backupsDir, keep = KEEP_BACKUPS) {
 	const backups = listLocalBackups(backupsDir);
 	const toDelete = backups.slice(keep);
 

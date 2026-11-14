@@ -103,6 +103,20 @@ async function uploadFile(config, localPath, remoteName) {
 	});
 }
 
+// T2.9: замена файла на сервере после выгрузки под временным именем
+async function replaceFile(config, tempName, remoteName) {
+	return withSftpClient(config, async (sftp) => {
+		const remoteDir = normalizeRemotePath(config.remoteDir || "/");
+		const tempPath = normalizeRemotePath(remoteDir + "/" + tempName);
+		const remotePath = normalizeRemotePath(remoteDir + "/" + remoteName);
+		if (await sftp.exists(remotePath)) {
+			await sftp.delete(remotePath);
+		}
+		await sftp.rename(tempPath, remotePath);
+		return { ok: true, remoteName };
+	});
+}
+
 async function downloadFile(config, remoteName, localPath) {
 	return withSftpClient(config, async (sftp) => {
 		const remoteDir = normalizeRemotePath(config.remoteDir || "/");
@@ -125,6 +139,7 @@ module.exports = {
 	normalizeRemotePath,
 	testConnection,
 	uploadFile,
+	replaceFile,
 	downloadFile,
 	fileExists
 };

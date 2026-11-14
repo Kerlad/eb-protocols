@@ -88,6 +88,50 @@ function rekeyDb(newKey) {
 	}
 }
 
+// Открывает произвольный файл базы (скачанный, резервную копию) текущим ключом сеанса
+function openDbFile(filePath, key = runtimeDbKey) {
+	const db = new Database(filePath, { fileMustExist: true });
+	try {
+		if (key) applyDbKey(db, key);
+		verifyDbReadable(db);
+	} catch (error) {
+		try { db.close(); } catch (e) {}
+		throw new Error(key
+			? "Файл базы не открывается текущим паролем базы или повреждён"
+			: "Файл не является базой данных программы или повреждён");
+	}
+	return db;
+}
+
+// T2.9: целостность и наличие основных таблиц — до того, как файл заменит рабочую базу
+function verifyDbFile(filePath, key = runtimeDbKey) {
+	const db = openDbFile(filePath, key);
+	try {
+		const result = db.pragma("integrity_check", { simple: true });
+		if (result !== "ok") {
+			throw new Error(`База повреждена: ${result}`);
+		}
+		const table = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'protocol_journal'").get();
+		if (!table) {
+			throw new Error("В файле нет таблиц программы (protocol_journal)");
+		}
+	} finally {
+		db.close();
+	}
+}
+
+// T2.9: согласованный снимок базы. VACUUM INTO, а не db.backup(): backup() на зашифрованной
+// базе падает («incompatible source and target»), а VACUUM INTO сохраняет шифрование тем же ключом.
+function snapshotDbFile(srcPath, destPath, key = runtimeDbKey) {
+	if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+	const db = openDbFile(srcPath, key);
+	try {
+		db.prepare("VACUUM INTO ?").run(destPath);
+	} finally {
+		db.close();
+	}
+}
+
 function getDb() {
 	if (singletonDb) return singletonDb;
 	singletonDb = openDb();
@@ -123,6 +167,9 @@ module.exports = {
 	setRuntimeDbKey,
 	getRuntimeDbKey,
 	rekeyDb,
+	openDbFile,
+	verifyDbFile,
+	snapshotDbFile,
 	touchDbOpened,
 	touchDbModified
 };
