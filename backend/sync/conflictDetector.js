@@ -18,6 +18,11 @@ function compareDbState(local, remote) {
 		};
 	}
 
+	// T2.8: сравнение по идентификаторам изменений. Старые метаданные без changeId — прежняя логика.
+	if (local.changeId && remote.changeId) {
+		return compareByChangeId(local, remote);
+	}
+
 	const localRevision = toNumber(local.syncRevision);
 	const remoteRevision = toNumber(remote.syncRevision);
 	const localModified = toTime(local.lastModifiedAt);
@@ -64,6 +69,29 @@ function compareDbState(local, remote) {
 		details: "Локальная версия новее",
 		localCount,
 		remoteCount
+	};
+}
+
+function compareByChangeId(local, remote) {
+	const counts = {
+		localCount: toNumber(local.journalCountTotal),
+		remoteCount: toNumber(remote.journalCountTotal)
+	};
+	if (local.changeId === remote.changeId) {
+		return { status: "in_sync", recommendation: "none", details: "Локальная и удаленная базы совпадают", ...counts };
+	}
+	const localChanged = local.changeId !== local.baseChangeId;
+	if (local.baseChangeId && local.baseChangeId === remote.changeId && localChanged) {
+		return { status: "local_newer", recommendation: "upload", details: "Локальная версия новее", ...counts };
+	}
+	if (local.baseChangeId && !localChanged) {
+		return { status: "remote_newer", recommendation: "download", details: "На сервере более свежая версия", ...counts };
+	}
+	return {
+		status: "conflict",
+		recommendation: "manual",
+		details: "Изменения есть и локально, и на сервере — требуется ручное решение",
+		...counts
 	};
 }
 

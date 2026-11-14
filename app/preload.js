@@ -58,7 +58,7 @@ contextBridge.exposeInMainWorld("ebApi", {
 		test: () => invoke("sync:test"),
 		diagnose: () => invoke("sync:diagnose"),
 		status: () => invoke("sync:status"),
-		upload: () => invoke("sync:upload"),
+		upload: (options) => invoke("sync:upload", options),
 		download: () => invoke("sync:download")
 	},
 	settings: {

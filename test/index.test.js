@@ -1237,7 +1237,7 @@ describe("T2.9 safe download, upload, backup", () => {
 		ftpClient.replaceFile = async (cfg, tempName, remoteName) => { calls.push(["rename", tempName, remoteName]); };
 		const db = openDbFile(dbPath);
 		try {
-			await uploadDb({ db, config, dbPath, tempDir: ctx.tmpDir });
+			await uploadDb({ db, config, dbPath, tempDir: ctx.tmpDir, force: true });
 		} finally {
 			db.close();
 		}
@@ -1583,5 +1583,79 @@ describe("protocol result updates employee group (T2.5)", () => {
 		assert.equal(employee().next_check_date, "2026-12-01");
 		await saveProtocol(form({ employee_id: empId, protocol_number: 2, check_date: "2026-11-20", next_check_date: "2027-11-20" }), { protocolsDir });
 		assert.equal(employee().electrical_safety_group, "IV");
+	});
+});
+
+describe("sync conflicts by change id (T2.8)", () => {
+	const fs = require("fs");
+	const path = require("path");
+	const { compareDbState } = require("../backend/sync/conflictDetector");
+	const ctx = useTempDataDir("eb-test-t28-", ["sync/backupService.js", "sync/syncService.js"]);
+	const ftpClient = require("../backend/sync/ftpClient");
+	const originals = {};
+	const config = { transport: "ftp", host: "test" };
+
+	it("compareDbState: four branches and legacy metadata", () => {
+		assert.equal(compareDbState({ changeId: "a", baseChangeId: "x" }, { changeId: "a" }).status, "in_sync");
+		assert.equal(compareDbState({ changeId: "b", baseChangeId: "a" }, { changeId: "a" }).status, "local_newer");
+		assert.equal(compareDbState({ changeId: "a", baseChangeId: "a" }, { changeId: "c" }).status, "remote_newer");
+		assert.equal(compareDbState({ changeId: "b", baseChangeId: "a" }, { changeId: "c" }).status, "conflict");
+		assert.equal(compareDbState({ changeId: "b", baseChangeId: null }, { changeId: "c" }).status, "conflict");
+		// одинаковые счётчики ревизий больше не маскируют расхождение
+		assert.equal(compareDbState(
+			{ changeId: "b", baseChangeId: "a", syncRevision: 5, journalCountTotal: 3 },
+			{ changeId: "c", syncRevision: 5, journalCountTotal: 3 }
+		).status, "conflict");
+		assert.equal(compareDbState({ syncRevision: 1, journalCountTotal: 1 }, { syncRevision: 1, journalCountTotal: 1 }).status, "in_sync");
+	});
+
+	before(() => {
+		ctx.setup();
+		for (const name of ["uploadFile", "replaceFile", "downloadFile", "fileExists"]) originals[name] = ftpClient[name];
+		require("../backend/db/initDb").initDb();
+	});
+	after(() => {
+		Object.assign(ftpClient, originals);
+		ctx.teardown();
+	});
+
+	const state = () => {
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try { return db.prepare("SELECT db_uid, change_id, base_change_id FROM sync_state WHERE id = 1").get(); } finally { db.close(); }
+	};
+
+	it("any data change gets a new change_id, settings do not", () => {
+		const { openDb } = require("../backend/db/connection");
+		const before = state();
+		assert.ok(before.db_uid && before.change_id);
+		const db = openDb();
+		try {
+			db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('x', 'y', 'z')").run();
+		} finally { db.close(); }
+		assert.equal(state().change_id, before.change_id);
+		const db2 = openDb();
+		try {
+			db2.prepare("INSERT INTO protocol_journal (protocol_year, protocol_number, full_name_snapshot, check_date, created_at, updated_at) VALUES (2026, 1, 'А', '2026-01-01', 'x', 'x')").run();
+		} finally { db2.close(); }
+		assert.notEqual(state().change_id, before.change_id);
+	});
+
+	it("upload refuses when server has foreign changes, force uploads and records base", async () => {
+		const { uploadDb } = require("../backend/sync/syncService");
+		const { openDb } = require("../backend/db/connection");
+		const remoteMeta = { changeId: "foreign", device: "PC-2", lastModifiedAt: "2026-11-10T10:00:00.000Z" };
+		ftpClient.fileExists = async () => true;
+		ftpClient.downloadFile = async (cfg, remote, local) => { fs.writeFileSync(local, JSON.stringify(remoteMeta)); };
+		ftpClient.uploadFile = async () => {};
+		ftpClient.replaceFile = async () => {};
+		const db = openDb();
+		try {
+			await assert.rejects(uploadDb({ db, config, dbPath: require("../backend/db/connection").DB_PATH, tempDir: ctx.tmpDir }),
+				(e) => e.code === "SYNC_CONFLICT" && e.remoteDevice === "PC-2");
+			await uploadDb({ db, config, dbPath: require("../backend/db/connection").DB_PATH, tempDir: ctx.tmpDir, force: true });
+		} finally { db.close(); }
+		const s = state();
+		assert.equal(s.base_change_id, s.change_id);
 	});
 });

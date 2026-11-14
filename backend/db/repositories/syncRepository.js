@@ -24,7 +24,8 @@ function updateSyncState(db, patch) {
 		"local_journal_count_current_year",
 		"remote_journal_count_current_year",
 		"local_max_protocol_number_current_year",
-		"remote_max_protocol_number_current_year"
+		"remote_max_protocol_number_current_year",
+		"base_change_id"
 	];
 
 	const keys = Object.keys(patch).filter((key) => allowed.includes(key));

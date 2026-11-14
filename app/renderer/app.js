@@ -1292,7 +1292,18 @@
 		if (!await themedConfirm("Выгрузка на FTP", "Выгрузить текущую локальную БД на FTP сервер? Это заменит файл на сервере.")) return;
 		toast("Выгрузка БД в облако...");
 		try {
-			const res = await api.sync.upload();
+			let res = await api.sync.upload();
+			if (res && res.code === "SYNC_CONFLICT") {
+				// T2.8: на сервере чужие изменения — выгрузка только после явного подтверждения
+				const when = res.remoteModifiedAt ? new Date(res.remoteModifiedAt).toLocaleString("ru-RU") : "неизвестно когда";
+				const who = res.remoteDevice || "другого компьютера";
+				const text = `На сервере есть изменения с компьютера ${who} от ${when}.
+` +
+					(res.status === "conflict" ? "Изменения есть и здесь, и на сервере. " : "") +
+					"Выгрузка заменит их локальной базой. Выгрузить всё равно?";
+				if (!await themedConfirm("Конфликт синхронизации", text)) { toast("Выгрузка отменена"); return; }
+				res = await api.sync.upload({ force: true });
+			}
 			if (res && res.ok) {
 				toast("База данных успешно выгружена!");
 				await loadAppSettings();

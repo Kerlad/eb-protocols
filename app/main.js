@@ -335,13 +335,28 @@ function registerIpc() {
 		}
 	});
 
-	ipcMain.handle("sync:upload", async () => {
+	ipcMain.handle("sync:upload", async (event, options) => {
 		const db = openDb();
 		try {
 			const config = await buildFtpConfig(db);
 			await resolveFtpProxy(config);
-			const result = await syncService.uploadDb({ db, config, dbPath: dbPath() });
-			return result;
+			const force = Boolean(options && options.force);
+			try {
+				return await syncService.uploadDb({ db, config, dbPath: dbPath(), force });
+			} catch (error) {
+				// T2.8: конфликт возвращается данными — свойства ошибки через IPC не доходят
+				if (error.code === "SYNC_CONFLICT") {
+					return {
+						ok: false,
+						code: "SYNC_CONFLICT",
+						status: error.status,
+						error: error.message,
+						remoteDevice: error.remoteDevice,
+						remoteModifiedAt: error.remoteModifiedAt
+					};
+				}
+				throw error;
+			}
 		} finally {
 			db.close();
 		}

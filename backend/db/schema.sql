@@ -155,7 +155,10 @@ CREATE TABLE IF NOT EXISTS sync_state (
 	local_journal_count_current_year INTEGER DEFAULT 0,
 	remote_journal_count_current_year INTEGER DEFAULT 0,
 	local_max_protocol_number_current_year INTEGER DEFAULT 0,
-	remote_max_protocol_number_current_year INTEGER DEFAULT 0
+	remote_max_protocol_number_current_year INTEGER DEFAULT 0,
+	db_uid TEXT,
+	change_id TEXT,
+	base_change_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS backup_history (

@@ -1,4 +1,5 @@
 const fs = require("fs");
+const crypto = require("crypto");
 const path = require("path");
 const { openDb, touchDbOpened } = require("./connection");
 const pkg = require("../../package.json");
@@ -49,6 +50,37 @@ function migrateFakeDates(db) {
 	return shifted;
 }
 
+// T2.8: идентификатор изменений базы для обнаружения конфликтов синхронизации.
+// change_id меняют триггеры на любой INSERT/UPDATE/DELETE в данных (не в settings,
+// app_events, sync_state — это локальное состояние компьютера).
+const SYNCED_TABLES = [
+	"employees", "departments", "knowledge_scopes", "commission_chairmen", "commission_members",
+	"commissions", "work_rights", "employee_rights", "protocol_journal"
+];
+
+function migrateSyncIdentity(db) {
+	const columns = new Set(db.prepare("PRAGMA table_info(sync_state)").all().map((c) => c.name));
+	for (const column of ["db_uid", "change_id", "base_change_id"]) {
+		if (!columns.has(column)) db.exec(`ALTER TABLE sync_state ADD COLUMN ${column} TEXT`);
+	}
+	db.prepare(`
+		UPDATE sync_state
+		SET db_uid = COALESCE(db_uid, @uid), change_id = COALESCE(change_id, @change)
+		WHERE id = 1
+	`).run({ uid: crypto.randomUUID(), change: crypto.randomUUID() });
+	for (const table of SYNCED_TABLES) {
+		for (const op of ["INSERT", "UPDATE", "DELETE"]) {
+			db.exec(`
+				CREATE TRIGGER IF NOT EXISTS trg_sync_change_${table}_${op.toLowerCase()}
+				AFTER ${op} ON ${table}
+				BEGIN
+					UPDATE sync_state SET change_id = lower(hex(randomblob(16))) WHERE id = 1;
+				END
+			`);
+		}
+	}
+}
+
 function initDb() {
 	const db = openDb();
 	try {
@@ -87,6 +119,7 @@ function initSchema(db) {
 		) VALUES (1, ?, 0, 'local_created')
 	`).run(pkg.version);
 
+	migrateSyncIdentity(db);
 	touchDbOpened(db);
 	console.log("SQLite database initialized v" + pkg.version);
 }
@@ -95,4 +128,4 @@ if (require.main === module) {
 	initDb();
 }
 
-module.exports = { initDb, migrateSettings, migrateFakeDates };
+module.exports = { initDb, migrateSettings, migrateFakeDates, migrateSyncIdentity };

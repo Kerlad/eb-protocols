@@ -42,6 +42,9 @@ function buildLocalMeta(db) {
 		journalCountCurrentYear: stats.journal_count_current_year,
 		maxProtocolNumberCurrentYear: stats.max_protocol_number_current_year,
 		maxProtocolNumbersByYear: stats.max_protocol_numbers_by_year,
+		dbUid: state.db_uid || null,
+		changeId: state.change_id || null,
+		baseChangeId: state.base_change_id || null,
 		device: info.device,
 		user: info.user,
 		generatedAt: new Date().toISOString()
@@ -75,7 +78,21 @@ async function getStatus(options) {
 }
 
 async function uploadDb(options) {
-	const { db, config, dbPath, tempDir } = options;
+	const { db, config, dbPath, tempDir, force } = options;
+
+	// T2.8: не затирать чужие изменения на сервере без явного подтверждения
+	if (!force) {
+		const { remoteMeta, comparison } = await getStatus({ db, config, tempDir });
+		if (comparison.status === "remote_newer" || comparison.status === "conflict") {
+			const error = new Error(comparison.details);
+			error.code = "SYNC_CONFLICT";
+			error.status = comparison.status;
+			error.remoteDevice = remoteMeta && remoteMeta.device || null;
+			error.remoteModifiedAt = remoteMeta && (remoteMeta.lastModifiedAt || remoteMeta.generatedAt) || null;
+			throw error;
+		}
+	}
+
 	const localMeta = buildLocalMeta(db);
 	const workDir = tempDir || os.tmpdir();
 	const stamp = Date.now();
@@ -104,7 +121,8 @@ async function uploadDb(options) {
 		last_sync_user: info.user,
 		last_sync_device: info.device,
 		sync_status: "uploaded",
-		sync_error: null
+		sync_error: null,
+		base_change_id: localMeta.changeId
 	});
 
 	return { ok: true, direction: "upload", meta: localMeta, transport: transport === sftpClient ? "SFTP" : "FTP" };
@@ -153,7 +171,8 @@ async function downloadDb(options) {
 			last_sync_user: info.user,
 			last_sync_device: info.device,
 			sync_status: "downloaded",
-			sync_error: null
+			sync_error: null,
+			base_change_id: (syncRepository.getSyncState(freshDb) || {}).change_id || null
 		});
 	} finally {
 		freshDb.close();
