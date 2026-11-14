@@ -66,11 +66,7 @@
 		return "ok";
 	}
 
-	function esc(s) {
-		const d = document.createElement("div");
-		d.textContent = s || "";
-		return d.innerHTML;
-	}
+	// esc() определена один раз — глобально в inline-скрипте index.html.
 
 	function mapEmployee(row) {
 		if (!row) return null;
@@ -107,7 +103,7 @@
 			const rows = await api.employees.searchByLastName(q);
 			searchCache = (rows || []).map(mapEmployee);
 			box.innerHTML = searchCache.length
-				? searchCache.map((w) => `<div class="suggest-item" onclick="pickWorker(${w.id}, '${ctx}')"><div><b>${esc(w.fio)}</b><span>${esc(w.work)} · ${esc(w.pos)}</span></div><span class="status ${w.status}">${fmt(w.next)}</span></div>`).join("")
+				? searchCache.map((w) => `<div class="suggest-item" onclick="pickWorker(${w.id}, '${ctx}')"><div><b>${esc(w.fio)}</b><span>${esc(w.work)} · ${esc(w.pos)}</span></div><span class="status ${esc(w.status)}">${esc(fmt(w.next))}</span></div>`).join("")
 				: '<div class="suggest-item"><span>Ничего не найдено</span></div>';
 			box.classList.add("active");
 		} catch (e) {
@@ -251,8 +247,8 @@
 				"Протокол сохранён",
 				`Протокол №${res.protocol_number}/${res.protocol_year} ${form.full_name_snapshot}\nФайл: ${fileName}\n\nОткрыть файл?`
 			);
-			if (open && res.docx_path) {
-				await api.shell.openFile(res.docx_path);
+			if (open && res.id) {
+				await api.journal.openFile(res.id, "docx");
 			}
 			await refreshProtocolNumber();
 			await window.renderEmployees();
@@ -526,9 +522,9 @@
 					<td style="vertical-align:middle;text-align:center">${esc(w.work)}</td>
 					<td style="vertical-align:middle;text-align:center">${esc(w.pos)}</td>
 					<td style="vertical-align:middle;text-align:center">${esc(w.group)}</td>
-					<td style="vertical-align:middle;text-align:center">${fmt(w.lastCheck)}</td>
-					<td style="vertical-align:middle;text-align:center">${fmt(w.next)}</td>
-					<td style="vertical-align:middle;text-align:center"><span class="status ${w.status}">${label}</span></td>
+					<td style="vertical-align:middle;text-align:center">${esc(fmt(w.lastCheck))}</td>
+					<td style="vertical-align:middle;text-align:center">${esc(fmt(w.next))}</td>
+					<td style="vertical-align:middle;text-align:center"><span class="status ${esc(w.status)}">${label}</span></td>
 					<td style="white-space:nowrap;width:1%;vertical-align:middle">
 						<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
 							<button class="ghost" style="padding:3px 8px;font-size:11px" onclick="go('protocol');selectWorker(${w.id})">Протокол</button>
@@ -557,13 +553,21 @@
 		}
 	};
 
-	window.openFile = async function (filePath) {
-		try {
-			await api.shell.openFile(filePath);
-		} catch (e) {
-			toast("Не удалось открыть файл: " + e.message);
-		}
-	};
+	// Один делегированный обработчик на tbody журнала (без inline onclick с путём).
+	(function () {
+		const jt = document.querySelector("#journal table tbody");
+		if (!jt) return;
+		jt.addEventListener("click", async (ev) => {
+			const a = ev.target.closest && ev.target.closest("a[data-journal-id]");
+			if (!a) return;
+			ev.preventDefault();
+			try {
+				await api.journal.openFile(Number(a.dataset.journalId), a.dataset.kind);
+			} catch (e) {
+				toast("Не удалось открыть файл: " + e.message);
+			}
+		});
+	})();
 
 	async function renderJournal() {
 		const table = document.querySelector("#journal table");
@@ -574,10 +578,10 @@
 			const rows = await api.journal.list({});
 			if (!rows || !rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="muted">Пока нет протоколов</td></tr>'; return; }
 			tbody.innerHTML = rows.map((r) => {
-				const docxLink = r.docx_path ? `<a href="#" style="color:var(--notion-blue);text-decoration:underline" onclick="openFile('${r.docx_path.replace(/\\/g, '\\\\')}')">DOCX</a>` : "—";
+				const docxLink = r.docx_path ? `<a href="#" style="color:var(--notion-blue);text-decoration:underline" data-journal-id="${esc(r.id)}" data-kind="docx">DOCX</a>` : "—";
 				const reasonShort = (r.reason || "").includes("Внеоч") ? "Внеоч" : "Очер";
-				const fioArg = JSON.stringify(r.full_name_snapshot || "").replace(/"/g, "&quot;");
-				return `<tr><td style="text-align:center">${r.protocol_number}</td><td style="text-align:center">${esc(r.full_name_snapshot)}</td><td style="text-align:center;font-size:12px">${reasonShort}</td><td style="text-align:center">${fmt(r.check_date)}</td><td style="text-align:center">${esc(r.electrical_safety_group)}</td><td style="text-align:center">${esc(r.final_result)}</td><td style="text-align:center">${fmt(r.next_check_date)}</td><td style="text-align:center">${docxLink}</td><td style="text-align:center"><button class="ghost" style="padding:3px 8px;font-size:11px;color:var(--danger)" onclick="deleteJournalRecord(${r.id}, ${fioArg}, ${r.protocol_number})">Удалить</button></td></tr>`;
+				const fioArg = esc(JSON.stringify(r.full_name_snapshot || ""));
+				return `<tr><td style="text-align:center">${esc(r.protocol_number)}</td><td style="text-align:center">${esc(r.full_name_snapshot)}</td><td style="text-align:center;font-size:12px">${reasonShort}</td><td style="text-align:center">${esc(fmt(r.check_date))}</td><td style="text-align:center">${esc(r.electrical_safety_group)}</td><td style="text-align:center">${esc(r.final_result)}</td><td style="text-align:center">${esc(fmt(r.next_check_date))}</td><td style="text-align:center">${docxLink}</td><td style="text-align:center"><button class="ghost" style="padding:3px 8px;font-size:11px;color:var(--danger)" onclick="deleteJournalRecord(${Number(r.id)}, ${fioArg}, ${Number(r.protocol_number)})">Удалить</button></td></tr>`;
 			}).join("");
 		} catch (e) { console.warn("renderJournal:", e.message); }
 	}
@@ -655,7 +659,7 @@
 			const fillSelectWithIds = (id, optionsList) => {
 				const sel = byId(id);
 				if (!sel) return;
-				sel.innerHTML = '<option></option>' + optionsList.map(opt => `<option value="${opt.id}">${esc(opt.full_name)} (${esc(opt.position)})</option>`).join("");
+				sel.innerHTML = '<option></option>' + optionsList.map(opt => `<option value="${esc(opt.id)}">${esc(opt.full_name)} (${esc(opt.position)})</option>`).join("");
 			};
 			
 			fillSelectWithIds("newCommChairman", refs.chairmen || []);
@@ -703,9 +707,9 @@
 			const in30Str = in30.toISOString().slice(0, 10);
 			const list = (rows || []).map(mapEmployee).filter(w => w && w.next && w.next >= todayStr && w.next <= in30Str);
 			const body = list.length
-				? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="ghost" style="padding:5px 12px;font-size:12px" onclick="exportUpcomingExcel()">Экспорт в Excel</button></div><div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)} · ${esc(w.pos)}</div></div><span class="status warn">${fmt(w.next)}</span></div>`).join("")}</div>`
+				? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="ghost" style="padding:5px 12px;font-size:12px" onclick="exportUpcomingExcel()">Экспорт в Excel</button></div><div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)} · ${esc(w.pos)}</div></div><span class="status warn">${esc(fmt(w.next))}</span></div>`).join("")}</div>`
 				: '<div class="muted" style="padding:16px 0">Нет работников со статусом «Скоро»</div>';
-			await themedConfirm(`Скоро — ${list.length} чел.`, body);
+			await themedModalHtml(`Скоро — ${list.length} чел.`, body);
 		} catch (e) { toast("Ошибка: " + e.message); }
 	};
 
@@ -717,7 +721,7 @@
 			const body = list.length
 				? `<div style="max-height:400px;overflow-y:auto">${list.map(w => `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--notion-border-soft)"><div><b>${esc(w.fio)}</b><div style="font-size:12px;color:var(--muted)">${esc(w.work)}</div></div><span class="status bad">Просрочено</span></div>`).join("")}</div>`
 				: '<div class="muted" style="padding:16px 0">Нет просроченных работников</div>';
-			await themedConfirm(`Просрочено — ${list.length} чел.`, body);
+			await themedModalHtml(`Просрочено — ${list.length} чел.`, body);
 		} catch (e) { toast("Ошибка: " + e.message); }
 	};
 
@@ -772,7 +776,7 @@
 			const box = byId("empRightsBox");
 			if (box && allRefs && allRefs.workRights) {
 				box.innerHTML = allRefs.workRights.map(r => 
-					`<div class="right-item"><input type="checkbox" data-right-id="${r.id}" id="add_emp_right_${r.id}"><label for="add_emp_right_${r.id}">${esc(r.name)}</label></div>`
+					`<div class="right-item"><input type="checkbox" data-right-id="${esc(r.id)}" id="add_emp_right_${esc(r.id)}"><label for="add_emp_right_${esc(r.id)}">${esc(r.name)}</label></div>`
 				).join("");
 			}
 		}
@@ -807,7 +811,7 @@
 			if (box && allRefs && allRefs.workRights) {
 				const checkedIds = (full.rights || []).map(r => r.id);
 				box.innerHTML = allRefs.workRights.map(r => 
-					`<div class="right-item"><input type="checkbox" data-right-id="${r.id}" id="add_emp_right_${r.id}" ${checkedIds.includes(r.id) ? 'checked' : ''}><label for="add_emp_right_${r.id}">${esc(r.name)}</label></div>`
+					`<div class="right-item"><input type="checkbox" data-right-id="${esc(r.id)}" id="add_emp_right_${esc(r.id)}" ${checkedIds.includes(r.id) ? 'checked' : ''}><label for="add_emp_right_${esc(r.id)}">${esc(r.name)}</label></div>`
 				).join("");
 			}
 		} catch (e) {
@@ -1139,11 +1143,18 @@
 	window.loadAppSettings = async function () {
 		try {
 			const settings = await api.settings.getAll();
-			setVal("ftpHost", settings.ftp_host || "");
-			setVal("ftpPort", settings.ftp_port || "21");
-			setVal("ftpUser", settings.ftp_user || "");
-			setVal("ftpPassword", settings.ftp_password || "");
-			setVal("ftpPath", settings.ftp_path || "");
+			setVal("ftpHost", settings["ftp.host"] || "");
+			setVal("ftpPort", settings["ftp.port"] || "21");
+			setVal("ftpUser", settings["ftp.user"] || "");
+			setVal("ftpPath", settings["ftp.remote_dir"] || "");
+			// Пароль FTP в настройках не хранится: поле не заполняем, только подсказка.
+			setVal("ftpPassword", "");
+			const pwdEl = byId("ftpPassword");
+			if (pwdEl) {
+				let pwdSet = false;
+				try { pwdSet = (await api.security.getStatus()).ftpPasswordSet === true; } catch (e) {}
+				pwdEl.placeholder = pwdSet ? "•••••• (сохранён)" : "";
+			}
 			setVal("libreofficePath", settings.libreoffice_path || "");
 			
 			await refreshDbEncryptionStatus();
@@ -1154,17 +1165,22 @@
 
 	window.saveAppSettings = async function () {
 		const settings = {
-			ftp_host: getVal("ftpHost").trim(),
-			ftp_port: getVal("ftpPort").trim(),
-			ftp_user: getVal("ftpUser").trim(),
-			ftp_password: getVal("ftpPassword").trim(),
-			ftp_path: getVal("ftpPath").trim(),
+			"ftp.host": getVal("ftpHost").trim(),
+			"ftp.port": getVal("ftpPort").trim(),
+			"ftp.user": getVal("ftpUser").trim(),
+			"ftp.remote_dir": getVal("ftpPath").trim(),
 			libreoffice_path: getVal("libreofficePath").trim()
 		};
+		const ftpPassword = getVal("ftpPassword").trim();
 		try {
 			await api.settings.save(settings);
-			if (settings.ftp_password) {
-				await api.security.setFtpPassword(settings.ftp_password);
+			if (ftpPassword) {
+				await api.security.setFtpPassword(ftpPassword);
+			}
+			setVal("ftpPassword", "");
+			if (ftpPassword) {
+				const pwdEl = byId("ftpPassword");
+				if (pwdEl) pwdEl.placeholder = "•••••• (сохранён)";
 			}
 			toast("Настройки сохранены");
 		} catch (e) {

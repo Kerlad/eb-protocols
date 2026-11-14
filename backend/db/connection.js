@@ -16,16 +16,35 @@ function setRuntimeDbKey(key) {
 	}
 }
 
-function openDb() {
+const KEY_HEX_RE = /^[0-9a-f]{64}$/i;
+
+// Ключ задаётся через pragma: опция конструктора { key } в этой сборке игнорируется
+function applyDbKey(db, key) {
+	if (!KEY_HEX_RE.test(String(key))) {
+		throw new Error("Некорректный ключ шифрования базы");
+	}
+	db.pragma("cipher='sqlcipher'");
+	db.pragma(`key="x'${key}'"`);
+}
+
+function verifyDbReadable(db) {
+	db.prepare("SELECT count(*) FROM sqlite_master").get();
+}
+
+function openDbWithKey(key) {
 	ensureDataDir();
 	migrateFromLegacy();
 
-	const options = {};
-	if (runtimeDbKey) {
-		options.key = runtimeDbKey;
+	const db = new Database(DB_PATH);
+	if (key) {
+		try {
+			applyDbKey(db, key);
+			verifyDbReadable(db);
+		} catch (error) {
+			try { db.close(); } catch (e) {}
+			throw new Error("Не удалось открыть базу: неверный пароль или база повреждена");
+		}
 	}
-
-	const db = new Database(DB_PATH, options);
 	db.pragma("foreign_keys = ON");
 
 	db.function("lower", (str) => {
@@ -33,6 +52,40 @@ function openDb() {
 	});
 
 	return db;
+}
+
+function openDb() {
+	return openDbWithKey(runtimeDbKey);
+}
+
+function getRuntimeDbKey() {
+	return runtimeDbKey;
+}
+
+// Меняет ключ базы: текущий ключ (runtimeDbKey) -> newKey; newKey = null снимает шифрование.
+// runtimeDbKey сама не меняет — это делает вызывающий после успеха.
+function rekeyDb(newKey) {
+	if (newKey && !KEY_HEX_RE.test(String(newKey))) {
+		throw new Error("Некорректный ключ шифрования базы");
+	}
+	const db = openDb();
+	try {
+		if (newKey) {
+			db.pragma("cipher='sqlcipher'");
+			db.pragma(`rekey="x'${newKey}'"`);
+		} else {
+			db.pragma("rekey=''");
+		}
+	} finally {
+		db.close();
+	}
+	// Проверка: база открывается новым ключом
+	const check = openDbWithKey(newKey || null);
+	try {
+		verifyDbReadable(check);
+	} finally {
+		check.close();
+	}
 }
 
 function getDb() {
@@ -68,6 +121,8 @@ module.exports = {
 	getDb,
 	closeDb,
 	setRuntimeDbKey,
+	getRuntimeDbKey,
+	rekeyDb,
 	touchDbOpened,
 	touchDbModified
 };

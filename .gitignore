@@ -29,3 +29,10 @@ Desktop.ini
 
 # Test reports
 docs/TEST_REPORT.md
+
+# Secrets: signing certificates and keys must never be committed
+*.pfx
+*.p12
+*.key
+*.pem
+.env
