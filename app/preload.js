@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld("ebApi", {
 	settings: {
 		getAll: () => invoke("settings:getAll"),
 		save: (settings) => invoke("settings:save", settings),
+		resetHostFingerprint: () => invoke("settings:resetHostFingerprint"),
 		openDataDir: () => invoke("settings:openDataDir"),
 		openProtocolsDir: () => invoke("settings:openProtocolsDir")
 	},

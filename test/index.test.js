@@ -1910,3 +1910,99 @@ describe("protocol file paths (T2.7)", () => {
 		assert.throws(() => withDb((db) => regenerateProtocolDocx(db, id, { protocolsDir })), /уже существует/);
 	});
 });
+
+describe("T2.10 transports and SFTP host key", () => {
+	const ctx = useTempDataDir("eb-test-transport-", ["sync/syncService.js"]);
+	const keyStorage = require("../backend/security/keyStorage");
+	const originalGetSecret = keyStorage.getSecret;
+
+	before(() => {
+		ctx.setup();
+		keyStorage.getSecret = async () => null;
+		const { initDb } = require("../backend/db/initDb");
+		initDb();
+	});
+
+	after(() => {
+		keyStorage.getSecret = originalGetSecret;
+		ctx.teardown();
+	});
+
+	async function configWith(settings) {
+		const { openDb } = require("../backend/db/connection");
+		const { buildFtpConfig } = require("../backend/security/ftpCredentials");
+		const db = openDb();
+		try {
+			db.prepare("DELETE FROM settings WHERE key LIKE 'ftp.%' OR key LIKE 'sftp.%'").run();
+			const ins = db.prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, 'x')");
+			for (const [k, v] of Object.entries({ "ftp.host": "h.example.com", ...settings })) ins.run(k, v);
+			return await buildFtpConfig(db);
+		} finally {
+			db.close();
+		}
+	}
+
+	it("buildFtpConfig defaults to FTPS on port 21", async () => {
+		const c = await configWith({});
+		assert.equal(c.transport, "ftps");
+		assert.equal(c.secure, true);
+		assert.equal(c.port, 21);
+		assert.equal(c.allowSelfSigned, false);
+		const bad = await configWith({ "ftp.transport": "bogus" });
+		assert.equal(bad.transport, "ftps");
+	});
+
+	it("buildFtpConfig: sftp port 22, explicit port wins, ftp not secure, self-signed", async () => {
+		let c = await configWith({ "ftp.transport": "sftp" });
+		assert.equal(c.transport, "sftp");
+		assert.equal(c.secure, false);
+		assert.equal(c.port, 22);
+		c = await configWith({ "ftp.transport": "sftp", "ftp.port": "2222" });
+		assert.equal(c.port, 2222);
+		c = await configWith({ "ftp.transport": "ftp" });
+		assert.equal(c.secure, false);
+		assert.equal(c.port, 21);
+		c = await configWith({ "ftp.allow_self_signed": "true" });
+		assert.equal(c.allowSelfSigned, true);
+	});
+
+	it("getTransport maps sftp to sftpClient, everything else to ftpClient", () => {
+		const syncService = require("../backend/sync/syncService");
+		const sftpClient = require("../backend/sync/sftpClient");
+		const ftpClient = require("../backend/sync/ftpClient");
+		assert.equal(syncService.getTransport({ transport: "sftp" }), sftpClient);
+		assert.equal(syncService.getTransport({ transport: "ftps" }), ftpClient);
+		assert.equal(syncService.getTransport({ transport: "ftp" }), ftpClient);
+		assert.equal(syncService.getTransport({ _proxyInfo: { type: "SOCKS" } }), ftpClient);
+	});
+
+	it("fetchRemoteMeta uses sftpClient when transport=sftp", async () => {
+		const syncService = require("../backend/sync/syncService");
+		const sftpClient = require("../backend/sync/sftpClient");
+		const ftpClient = require("../backend/sync/ftpClient");
+		const orig = { s: sftpClient.fileExists, f: ftpClient.fileExists };
+		const calls = [];
+		sftpClient.fileExists = async () => { calls.push("sftp"); return false; };
+		ftpClient.fileExists = async () => { calls.push("ftp"); return false; };
+		try {
+			assert.equal(await syncService.fetchRemoteMeta({ transport: "sftp" }, require("os").tmpdir()), null);
+			assert.deepEqual(calls, ["sftp"]);
+		} finally {
+			sftpClient.fileExists = orig.s;
+			ftpClient.fileExists = orig.f;
+		}
+	});
+
+	it("verifyHostKey: first use is new, same key ok, changed key rejected", () => {
+		const { verifyHostKey } = require("../backend/sync/sftpClient");
+		const key = Buffer.from("host-key-A");
+		const first = verifyHostKey(null, key);
+		assert.equal(first.ok, true);
+		assert.equal(first.isNew, true);
+		assert.equal(first.fingerprint, require("crypto").createHash("sha256").update(key).digest("base64"));
+		const same = verifyHostKey(first.fingerprint, key);
+		assert.deepEqual({ ok: same.ok, isNew: same.isNew }, { ok: true, isNew: false });
+		const other = verifyHostKey(first.fingerprint, Buffer.from("host-key-B"));
+		assert.deepEqual({ ok: other.ok, isNew: other.isNew }, { ok: false, isNew: false });
+	});
+});

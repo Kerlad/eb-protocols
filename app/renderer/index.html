@@ -1430,8 +1430,12 @@ main.content,
           <h3>1. Синхронизация (FTP)</h3>
           <p class="muted">Настройки подключения к удаленному FTP-серверу для синхронизации журнала и справочников.</p>
           <div class="form-grid" style="margin-top:12px">
-            <div class="field span-8"><label>FTP Хост</label><input id="ftpHost" placeholder="ftp.example.com"></div>
-            <div class="field span-4"><label>FTP Порт</label><input id="ftpPort" type="number" value="21"></div>
+            <div class="field span-8"><label>Хост</label><input id="ftpHost" placeholder="ftp.example.com"></div>
+            <div class="field span-4"><label>Порт</label><input id="ftpPort" type="number" value="21"></div>
+            <div class="field span-6"><label>Протокол</label><select id="ftpTransport" onchange="updateFtpTransportUi()"><option value="ftps" selected>FTPS (FTP с шифрованием)</option><option value="sftp">SFTP (SSH)</option><option value="ftp">FTP без шифрования</option></select></div>
+            <div class="field span-6" id="ftpSelfSignedRow"><label><input type="checkbox" id="ftpAllowSelfSigned" style="width:auto"> Разрешить самоподписанный сертификат</label></div>
+            <div class="field span-12" id="ftpPlainWarning" style="display:none"><p class="muted" style="color:#b00020">Внимание: при FTP без шифрования данные и пароль передаются по сети открытым текстом. Используйте только в доверенной сети.</p></div>
+            <div class="field span-12" id="sftpFingerprintRow" style="display:none"><button class="ghost" onclick="resetSftpFingerprint()">Сбросить отпечаток ключа</button></div>
             <div class="field span-6"><label>Имя пользователя</label><input id="ftpUser" placeholder="username"></div>
             <div class="field span-6"><label>Пароль FTP</label><input id="ftpPassword" type="password" placeholder="••••••••"></div>
             <div class="field span-12"><label>Удаленный путь к файлу БД</label><input id="ftpPath" placeholder="/eb_protocols/eb_protocols.db"></div>

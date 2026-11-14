@@ -1233,6 +1233,10 @@
 			setVal("ftpPort", settings["ftp.port"] || "21");
 			setVal("ftpUser", settings["ftp.user"] || "");
 			setVal("ftpPath", settings["ftp.remote_dir"] || "");
+			setVal("ftpTransport", ["ftps", "sftp", "ftp"].includes(settings["ftp.transport"]) ? settings["ftp.transport"] : "ftps");
+			const ssEl = byId("ftpAllowSelfSigned");
+			if (ssEl) ssEl.checked = settings["ftp.allow_self_signed"] === "true";
+			window.updateFtpTransportUi(true);
 			// Пароль FTP в настройках не хранится: поле не заполняем, только подсказка.
 			setVal("ftpPassword", "");
 			const pwdEl = byId("ftpPassword");
@@ -1249,12 +1253,35 @@
 		}
 	};
 
+	window.updateFtpTransportUi = function (keepPort) {
+		const t = getVal("ftpTransport") || "ftps";
+		const show = (id, on) => { const el = byId(id); if (el) el.style.display = on ? "" : "none"; };
+		show("ftpSelfSignedRow", t === "ftps");
+		show("ftpPlainWarning", t === "ftp");
+		show("sftpFingerprintRow", t === "sftp");
+		const portEl = byId("ftpPort");
+		if (!keepPort && portEl && (portEl.value === "21" || portEl.value === "22" || !portEl.value)) {
+			portEl.value = t === "sftp" ? "22" : "21";
+		}
+	};
+
+	window.resetSftpFingerprint = async function () {
+		try {
+			await api.settings.resetHostFingerprint();
+			toast("Отпечаток ключа сервера сброшен");
+		} catch (e) {
+			toast("Ошибка: " + e.message);
+		}
+	};
+
 	window.saveAppSettings = async function () {
 		const settings = {
 			"ftp.host": getVal("ftpHost").trim(),
 			"ftp.port": getVal("ftpPort").trim(),
 			"ftp.user": getVal("ftpUser").trim(),
 			"ftp.remote_dir": getVal("ftpPath").trim(),
+			"ftp.transport": getVal("ftpTransport") || "ftps",
+			"ftp.allow_self_signed": byId("ftpAllowSelfSigned") && byId("ftpAllowSelfSigned").checked ? "true" : "false",
 			libreoffice_path: getVal("libreofficePath").trim()
 		};
 		const ftpPassword = getVal("ftpPassword").trim();

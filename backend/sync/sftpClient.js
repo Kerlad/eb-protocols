@@ -1,5 +1,6 @@
 const SftpClient = require('ssh2-sftp-client');
 const net = require('net');
+const crypto = require('crypto');
 const { SocksClient } = require('socks');
 
 function normalizeRemotePath(remotePath) {
@@ -44,8 +45,19 @@ async function createHttpTunnel(proxy, targetHost, targetPort) {
 	});
 }
 
+const HOST_KEY_CHANGED_MESSAGE =
+	"Ключ сервера изменился. Если сервер переустановлен, очистите отпечаток в настройках.";
+
+// T2.10: чистая проверка ключа хоста; fingerprint = sha256 в base64
+function verifyHostKey(stored, keyBuffer) {
+	const fingerprint = crypto.createHash("sha256").update(keyBuffer).digest("base64");
+	if (!stored) return { ok: true, fingerprint, isNew: true };
+	return { ok: stored === fingerprint, fingerprint, isNew: false };
+}
+
 async function withSftpClient(config, handler) {
 	const sftp = new SftpClient();
+	let hostKeyMismatch = false;
 	try {
 		const connConfig = {
 			host: config.host,
@@ -53,7 +65,18 @@ async function withSftpClient(config, handler) {
 			username: config.user,
 			password: config.password,
 			readyTimeout: config.timeout || 10000,
-			strictVendor: false
+			strictVendor: false,
+			hostVerifier: (key) => {
+				const result = verifyHostKey(config.hostFingerprint, key);
+				if (!result.ok) {
+					hostKeyMismatch = true;
+					return false;
+				}
+				if (result.isNew && typeof config.onNewHostFingerprint === "function") {
+					try { config.onNewHostFingerprint(result.fingerprint); } catch (e) { /* не блокируем подключение */ }
+				}
+				return true;
+			}
 		};
 
 		if (config._proxyInfo) {
@@ -67,7 +90,12 @@ async function withSftpClient(config, handler) {
 			}
 		}
 
-		await sftp.connect(connConfig);
+		try {
+			await sftp.connect(connConfig);
+		} catch (error) {
+			if (hostKeyMismatch) throw new Error(HOST_KEY_CHANGED_MESSAGE);
+			throw error;
+		}
 		return await handler(sftp);
 	} finally {
 		try { await sftp.end(); } catch (e) {}
@@ -90,6 +118,19 @@ async function testConnection(config) {
 			proxy: config._proxyInfo ? `${config._proxyInfo.type} ${config._proxyInfo.host}:${config._proxyInfo.port}` : "DIRECT"
 		};
 	});
+}
+
+// упрощённая диагностика: SFTP проверяется тем же тестом подключения
+async function diagnoseConnection(config) {
+	const steps = [];
+	try {
+		const result = await testConnection(config);
+		steps.push({ step: "SFTP", ok: true, message: `Подключено, записей в папке: ${result.entries}` });
+		return { ok: true, steps, summary: "SFTP: подключение успешно", transport: "SFTP" };
+	} catch (error) {
+		steps.push({ step: "SFTP", ok: false, message: error.message });
+		return { ok: false, steps, summary: "SFTP: " + error.message, transport: "SFTP" };
+	}
 }
 
 async function uploadFile(config, localPath, remoteName) {
@@ -137,7 +178,10 @@ async function fileExists(config, remoteName) {
 
 module.exports = {
 	normalizeRemotePath,
+	verifyHostKey,
+	HOST_KEY_CHANGED_MESSAGE,
 	testConnection,
+	diagnoseConnection,
 	uploadFile,
 	replaceFile,
 	downloadFile,

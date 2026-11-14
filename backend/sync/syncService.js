@@ -13,12 +13,7 @@ const REMOTE_META_NAME = "eb_protocols.meta.json";
 const REMOTE_DB_TEMP_NAME = REMOTE_DB_NAME + ".uploading";
 
 function getTransport(config) {
-	const proxy = config._proxyInfo;
-	const transport = config.transport || "auto";
-	if (transport === "sftp") return sftpClient;
-	if (transport === "ftp") return ftpClient;
-	if (proxy) return sftpClient;
-	return ftpClient;
+	return config && config.transport === "sftp" ? sftpClient : ftpClient;
 }
 
 function deviceInfo() {
@@ -52,11 +47,12 @@ function buildLocalMeta(db) {
 }
 
 async function fetchRemoteMeta(config, tempDir) {
-	const exists = await ftpClient.fileExists(config, REMOTE_META_NAME);
+	const transport = getTransport(config);
+	const exists = await transport.fileExists(config, REMOTE_META_NAME);
 	if (!exists) return null;
 
 	const tempPath = path.join(tempDir, `remote_${Date.now()}.meta.json`);
-	await ftpClient.downloadFile(config, REMOTE_META_NAME, tempPath);
+	await transport.downloadFile(config, REMOTE_META_NAME, tempPath);
 
 	try {
 		const raw = fs.readFileSync(tempPath, "utf8");
@@ -187,6 +183,7 @@ module.exports = {
 	REMOTE_DB_TEMP_NAME,
 	buildLocalMeta,
 	fetchRemoteMeta,
+	getTransport,
 	getStatus,
 	uploadDb,
 	downloadDb

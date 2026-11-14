@@ -271,6 +271,14 @@ function registerIpc() {
 		})
 	);
 
+	// T2.10: сброс сохранённого отпечатка ключа SFTP-сервера
+	ipcMain.handle("settings:resetHostFingerprint", () =>
+		withDb((db) => {
+			db.prepare("DELETE FROM settings WHERE key = ?").run("sftp.host_fingerprint");
+			return { ok: true };
+		})
+	);
+
 	ipcMain.handle("settings:openDataDir", async () => {
 		fs.mkdirSync(dataDir(), { recursive: true });
 		await shell.openPath(dataDir());
@@ -307,13 +315,13 @@ function registerIpc() {
 	ipcMain.handle("sync:test", async () => {
 		const config = await withDbAsync((db) => buildFtpConfig(db));
 		await resolveFtpProxy(config);
-		return ftpClient.testConnection(config);
+		return syncService.getTransport(config).testConnection(config);
 	});
 
 	ipcMain.handle("sync:diagnose", async () => {
 		const config = await withDbAsync((db) => buildFtpConfig(db));
 		await resolveFtpProxy(config);
-		return ftpClient.diagnoseConnection(config);
+		return syncService.getTransport(config).diagnoseConnection(config);
 	});
 
 	ipcMain.handle("sync:status", async () => {
