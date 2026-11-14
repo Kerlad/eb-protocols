@@ -110,6 +110,15 @@ function initSchema(db) {
 		}
 	}
 
+	// T2.7: данные предыдущей проверки нужны, чтобы заново сформировать DOCX из журнала
+	for (const column of ["previous_check_date", "previous_result"]) {
+		try {
+			db.exec(`ALTER TABLE protocol_journal ADD COLUMN ${column} TEXT`);
+		} catch (e) {
+			// колонка уже есть
+		}
+	}
+
 	db.prepare(`
 		INSERT OR IGNORE INTO sync_state (
 			id,

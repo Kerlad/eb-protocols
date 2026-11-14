@@ -79,9 +79,10 @@ function renderProtocolDocx(options) {
 }
 
 function buildOutputFileName(form) {
-	const number = safeFilePart(form.protocol_number || "б_н");
+	const year = safeFilePart(form.protocol_year || (form.check_date ? String(form.check_date).slice(0, 4) : "") || "б_г");
+	const number = form.protocol_number ? String(form.protocol_number).padStart(4, "0") : "б_н";
 	const name = safeFilePart(form.full_name_snapshot || "протокол");
-	return `Протокол_${number}_${name}.docx`;
+	return `Протокол_${year}_${safeFilePart(number)}_${name}.docx`;
 }
 
 function createTestProtocol(outputDir) {

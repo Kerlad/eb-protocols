@@ -545,7 +545,8 @@ describe("docxGenerator utilities", () => {
 	});
 
 	it("buildOutputFileName builds correct filename", () => {
-		assert.equal(buildOutputFileName({ protocol_number: 137, full_name_snapshot: "Иванов И.И." }), "Протокол_137_Иванов_И.И..docx");
+		assert.equal(buildOutputFileName({ protocol_year: 2026, protocol_number: 137, full_name_snapshot: "Иванов И.И." }), "Протокол_2026_0137_Иванов_И.И..docx");
+		assert.equal(buildOutputFileName({ check_date: "2025-04-01", protocol_number: 5, full_name_snapshot: "Петров П." }), "Протокол_2025_0005_Петров_П..docx");
 	});
 
 	it("buildOutputFileName handles missing fields", () => {
@@ -1819,5 +1820,93 @@ describe("deleting a protocol restores the employee card (T2.6)", () => {
 		const emp = withDb((db) => db.prepare("SELECT * FROM employees WHERE id = ?").get(empId));
 		assert.equal(emp.last_check_date, "2026-03-02");
 		assert.equal(emp.electrical_safety_group, "IV");
+	});
+});
+
+describe("protocol file paths (T2.7)", () => {
+	const path = require("path");
+	const fs = require("fs");
+	const ctx = useTempDataDir("eb-test-t27-", ["protocol/protocolService.js"]);
+	let protocolsDir;
+	const docxGenerator = require("../backend/protocol/docxGenerator");
+	const originalRender = docxGenerator.renderProtocolDocx;
+
+	const form = (extra) => ({
+		protocol_number: 7, check_date: "2026-05-04", next_check_date: "2027-05-04",
+		full_name_snapshot: "Путёв П.П.", reason: "Очередная", electrical_safety_group: "IV",
+		final_result: "Уд", commission_name: "Комиссия", chairman_name: "Иванов И.И.", member_1_name: "Петров П.П.",
+		previous_check_date: "2025-05-04", previous_result: "Уд",
+		...extra
+	});
+	const withDb = (fn) => {
+		const { openDb } = require("../backend/db/connection");
+		const db = openDb();
+		try { return fn(db); } finally { db.close(); }
+	};
+	const stubWrite = ({ outputPath }) => {
+		fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+		fs.writeFileSync(outputPath, "x");
+	};
+
+	before(() => {
+		ctx.setup();
+		require("../backend/db/initDb").initDb();
+		protocolsDir = path.join(ctx.tmpDir, "protocols");
+		docxGenerator.renderProtocolDocx = stubWrite;
+	});
+	after(() => {
+		docxGenerator.renderProtocolDocx = originalRender;
+		ctx.teardown();
+	});
+
+	it("stores a relative path in a year folder and the previous check fields", async () => {
+		const { saveProtocol } = require("../backend/protocol/protocolService");
+		const res = await saveProtocol(form(), { protocolsDir });
+		const row = withDb((db) => db.prepare("SELECT * FROM protocol_journal WHERE id = ?").get(res.id));
+		assert.equal(row.docx_path, "2026/Протокол_2026_0007_Путёв_П.П..docx");
+		assert.ok(fs.existsSync(path.join(protocolsDir, row.docx_path)));
+		assert.equal(row.previous_check_date, "2025-05-04");
+		assert.equal(row.previous_result, "Уд");
+	});
+
+	it("resolveProtocolFile handles relative, legacy absolute and missing paths", () => {
+		const { resolveProtocolFile } = require("../backend/protocol/protocolFiles");
+		const rel = "2026/Протокол_2026_0007_Путёв_П.П..docx";
+		assert.equal(resolveProtocolFile(protocolsDir, rel), fs.realpathSync.native(path.join(protocolsDir, rel)));
+		// старый абсолютный путь с другого компьютера: ищем по имени в папке года
+		const legacy = "C:\\Other\\data\\protocols\\Протокол_2026_0007_Путёв_П.П..docx";
+		assert.equal(resolveProtocolFile(protocolsDir, legacy), fs.realpathSync.native(path.join(protocolsDir, rel)));
+		assert.equal(resolveProtocolFile(protocolsDir, "2026/нет_такого.docx"), null);
+		assert.throws(() => resolveProtocolFile(protocolsDir, "2026/file.exe"), /Недопустимый/);
+		const outside = path.join(ctx.tmpDir, "outside.docx");
+		fs.writeFileSync(outside, "x");
+		assert.throws(() => resolveProtocolFile(protocolsDir, outside), /вне папки/);
+	});
+
+	it("never overwrites an existing file and leaves no journal row", async () => {
+		const { saveProtocol } = require("../backend/protocol/protocolService");
+		const target = path.join(protocolsDir, "2026", "Протокол_2026_0008_Путёв_П.П..docx");
+		fs.writeFileSync(target, "чужой файл");
+		await assert.rejects(() => saveProtocol(form({ protocol_number: 8 }), { protocolsDir }), /уже существует/);
+		assert.equal(fs.readFileSync(target, "utf8"), "чужой файл");
+		const count = withDb((db) => db.prepare("SELECT COUNT(*) AS c FROM protocol_journal WHERE protocol_number = 8").get().c);
+		assert.equal(count, 0);
+	});
+
+	it("regenerate creates the missing file from the journal row", async () => {
+		const { regenerateProtocolDocx } = require("../backend/protocol/protocolService");
+		const { protocolFileExists } = require("../backend/protocol/protocolFiles");
+		const id = withDb((db) => db.prepare("SELECT id FROM protocol_journal WHERE protocol_number = 7").get().id);
+		const file = path.join(protocolsDir, "2026", "Протокол_2026_0007_Путёв_П.П..docx");
+		fs.unlinkSync(file);
+		assert.equal(protocolFileExists(protocolsDir, "2026/Протокол_2026_0007_Путёв_П.П..docx"), false);
+		let captured;
+		docxGenerator.renderProtocolDocx = (opts) => { captured = opts; stubWrite(opts); };
+		const res = withDb((db) => regenerateProtocolDocx(db, id, { protocolsDir }));
+		assert.equal(res.docx_path, "2026/Протокол_2026_0007_Путёв_П.П..docx");
+		assert.ok(fs.existsSync(file));
+		assert.equal(captured.placeholderMap["пред_оценка"], "Уд");
+		docxGenerator.renderProtocolDocx = stubWrite;
+		assert.throws(() => withDb((db) => regenerateProtocolDocx(db, id, { protocolsDir })), /уже существует/);
 	});
 });

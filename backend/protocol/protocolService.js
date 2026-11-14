@@ -4,6 +4,7 @@ const { openDb, touchDbModified } = require("../db/connection");
 const { getProtocolYear, getNextProtocolNumber, assertProtocolNumberAvailable } = require("./protocolNumbering");
 const { buildProtocolPlaceholderMap } = require("./placeholderMap");
 const docxGenerator = require("./docxGenerator");
+const { toRelativeProtocolPath } = require("./protocolFiles");
 const { buildOutputFileName } = docxGenerator;
 const employeesRepository = require("../db/repositories/employeesRepository");
 const syncRepository = require("../db/repositories/syncRepository");
@@ -156,9 +157,14 @@ async function saveProtocol(form, options = {}) {
 
 		const placeholderMap = buildProtocolPlaceholderMap(record);
 		const protocolsDir = options.protocolsDir || require("../paths").getProtocolsDir();
-		const outputPath = path.join(protocolsDir, buildOutputFileName(record));
+		// T2.7: protocols/{год}/Протокол_{год}_{номер}_{ФИО}.docx; в базе путь относительный
+		const outputPath = path.join(protocolsDir, String(protocolYear), buildOutputFileName(record));
+		if (fs.existsSync(outputPath)) {
+			// до записи в журнал: ничего не перезаписываем и строки-сирот не остаётся
+			throw new Error(`Файл протокола уже существует и не будет перезаписан: ${path.basename(outputPath)}`);
+		}
 
-		record.docx_path = outputPath;
+		record.docx_path = toRelativeProtocolPath(protocolsDir, outputPath);
 
 		// Прежние значения работника: нужны, чтобы откатить обновление, если DOCX не создался
 		const prevEmployee = record.employee_id ? employeesRepository.findById(db, record.employee_id) : null;
@@ -175,7 +181,7 @@ async function saveProtocol(form, options = {}) {
 					final_result, duplicate_duration, voltage_category, commission_name,
 					chairman_position, chairman_name, member_1_position, member_1_name,
 					member_2_position, member_2_name, member_3_position, member_3_name,
-					rights_text, docx_path, created_at, updated_at
+					rights_text, previous_check_date, previous_result, docx_path, created_at, updated_at
 				) VALUES (
 					@protocol_year, @protocol_number, @employee_id, @full_name_snapshot,
 					@workplace_snapshot, @position_snapshot, @check_date, @next_check_date,
@@ -184,7 +190,7 @@ async function saveProtocol(form, options = {}) {
 					@final_result, @duplicate_duration, @voltage_category, @commission_name,
 					@chairman_position, @chairman_name, @member_1_position, @member_1_name,
 					@member_2_position, @member_2_name, @member_3_position, @member_3_name,
-					@rights_text, @docx_path, @created_at, @updated_at
+					@rights_text, @previous_check_date, @previous_result, @docx_path, @created_at, @updated_at
 				)
 			`).run({ ...record, created_at: createdAt, updated_at: createdAt });
 
@@ -249,7 +255,7 @@ async function saveProtocol(form, options = {}) {
 			const { generatePdf } = require("./pdfGenerator");
 			pdfPath = await generatePdf(outputPath);
 			db.prepare("UPDATE protocol_journal SET pdf_path = ? WHERE protocol_year = ? AND protocol_number = ?")
-				.run(pdfPath, protocolYear, protocolNumber);
+				.run(toRelativeProtocolPath(protocolsDir, pdfPath), protocolYear, protocolNumber);
 		} catch (error) {
 			console.warn("PDF generation skipped/failed:", error.message);
 		}
@@ -269,9 +275,32 @@ async function saveProtocol(form, options = {}) {
 	}
 }
 
+// T2.7: заново собирает DOCX по строке журнала (например, на другом компьютере, где файла нет)
+function regenerateProtocolDocx(db, id, options = {}) {
+	const row = db.prepare("SELECT * FROM protocol_journal WHERE id = ?").get(Number(id));
+	if (!row) {
+		throw new Error("Запись журнала не найдена");
+	}
+	const protocolsDir = options.protocolsDir || require("../paths").getProtocolsDir();
+	const outputPath = path.join(protocolsDir, String(row.protocol_year), buildOutputFileName(row));
+	if (fs.existsSync(outputPath)) {
+		throw new Error(`Файл протокола уже существует: ${path.basename(outputPath)}`);
+	}
+	docxGenerator.renderProtocolDocx({
+		form: row,
+		placeholderMap: buildProtocolPlaceholderMap(row),
+		outputPath
+	});
+	const relative = toRelativeProtocolPath(protocolsDir, outputPath);
+	db.prepare("UPDATE protocol_journal SET docx_path = ?, updated_at = ? WHERE id = ?").run(relative, now(), row.id);
+	touchDbModified(db);
+	return { id: row.id, docx_path: relative };
+}
+
 module.exports = {
 	getProtocolDraft,
 	saveProtocol,
+	regenerateProtocolDocx,
 	validateProtocolForm,
 	computeNextCheckDate,
 	generatePreviewDocx

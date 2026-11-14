@@ -84,6 +84,8 @@ function isInsideDir(baseDir, targetPath) {
 	return Boolean(rel) && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
+const { resolveProtocolFile: resolveStoredProtocolFile, protocolFileExists } = require("../backend/protocol/protocolFiles");
+
 function realOrSame(p) {
 	try {
 		return fs.realpathSync.native(p);
@@ -97,24 +99,12 @@ function resolveProtocolFile(storedPath, kind) {
 	if (!storedPath) {
 		throw new Error(kind === "pdf" ? "PDF для этого протокола не создан" : "Файл протокола не указан в журнале");
 	}
-	const baseDir = protocolsDir();
-	const stored = String(storedPath);
-	let full = path.isAbsolute(stored) ? path.resolve(stored) : path.resolve(baseDir, stored);
-	if (!fs.existsSync(full)) {
-		full = path.join(baseDir, path.basename(stored));
+	// относительные пути и старые абсолютные разбирает один помощник; проверка «внутри папки» и расширения там же
+	const full = resolveStoredProtocolFile(protocolsDir(), storedPath);
+	if (!full) {
+		throw new Error("Файл не найден на этом компьютере: " + path.basename(String(storedPath).replace(/\\/g, "/")));
 	}
-	const ext = path.extname(full).toLowerCase();
-	if (ext !== ".docx" && ext !== ".pdf") {
-		throw new Error("Недопустимый тип файла протокола");
-	}
-	if (!fs.existsSync(full)) {
-		throw new Error("Файл не найден на этом компьютере: " + path.basename(stored));
-	}
-	const realFull = realOrSame(full);
-	if (!isInsideDir(realOrSame(baseDir), realFull)) {
-		throw new Error("Файл находится вне папки протоколов, открытие запрещено");
-	}
-	return realFull;
+	return full;
 }
 
 async function applyDbEncryptionKey() {
@@ -238,7 +228,14 @@ function registerIpc() {
 	});
 
 	ipcMain.handle("journal:list", (event, filters) =>
-		withDb((db) => journalRepository.listJournal(db, filters || {}))
+		withDb((db) => journalRepository.listJournal(db, filters || {}).map((row) => ({
+			...row,
+			file_exists: protocolFileExists(protocolsDir(), row.docx_path)
+		})))
+	);
+
+	ipcMain.handle("journal:regenerate", (event, id) =>
+		withDb((db) => protocolService.regenerateProtocolDocx(db, id, { protocolsDir: protocolsDir() }))
 	);
 
 	ipcMain.handle("journal:stats", (event, year) =>

@@ -131,6 +131,8 @@ CREATE TABLE IF NOT EXISTS protocol_journal (
 	rights_text TEXT,
 	docx_path TEXT,
 	pdf_path TEXT,
+	previous_check_date TEXT,
+	previous_result TEXT,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	UNIQUE (protocol_year, protocol_number),

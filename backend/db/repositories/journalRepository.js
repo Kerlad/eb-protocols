@@ -2,6 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const employeesRepository = require("./employeesRepository");
 const eventsRepository = require("./eventsRepository");
+const { resolveProtocolFile } = require("../../protocol/protocolFiles");
 const { isFailedResult } = require("../../utils/checkPeriod");
 
 function getProtocolYear(checkDate) {
@@ -87,12 +88,8 @@ function listJournal(db, filters = {}) {
 function markFileDeleted(protocolsDir, storedPath) {
 	if (!storedPath) return null;
 	try {
-		const stored = String(storedPath);
-		let full = path.isAbsolute(stored) ? stored : path.join(protocolsDir, stored);
-		if (!fs.existsSync(full)) {
-			full = path.join(protocolsDir, path.basename(stored.replace(/\\/g, "/")));
-		}
-		if (!fs.existsSync(full)) return null;
+		const full = resolveProtocolFile(protocolsDir, storedPath);
+		if (!full) return null;
 		let target = full + ".deleted";
 		if (fs.existsSync(target)) target = `${full}.${Date.now()}.deleted`;
 		fs.renameSync(full, target);

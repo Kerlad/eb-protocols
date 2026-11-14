@@ -629,6 +629,20 @@
 		const jt = document.querySelector("#journal table tbody");
 		if (!jt) return;
 		jt.addEventListener("click", async (ev) => {
+			const regen = ev.target.closest && ev.target.closest("button[data-regenerate-id]");
+			if (regen) {
+				ev.preventDefault();
+				regen.disabled = true;
+				try {
+					await api.journal.regenerate(Number(regen.dataset.regenerateId));
+					toast("Протокол сформирован заново");
+					await renderJournal();
+				} catch (e) {
+					regen.disabled = false;
+					toast("Не удалось сформировать протокол: " + e.message);
+				}
+				return;
+			}
 			const a = ev.target.closest && ev.target.closest("a[data-journal-id]");
 			if (!a) return;
 			ev.preventDefault();
@@ -649,7 +663,12 @@
 			const rows = await api.journal.list({});
 			if (!rows || !rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="muted">Пока нет протоколов</td></tr>'; return; }
 			tbody.innerHTML = rows.map((r) => {
-				const docxLink = r.docx_path ? `<a href="#" style="color:var(--notion-blue);text-decoration:underline" data-journal-id="${esc(r.id)}" data-kind="docx">DOCX</a>` : "—";
+				let docxLink = "—";
+				if (r.docx_path && r.file_exists) {
+					docxLink = `<a href="#" style="color:var(--notion-blue);text-decoration:underline" data-journal-id="${esc(r.id)}" data-kind="docx">DOCX</a>`;
+				} else if (r.docx_path) {
+					docxLink = `<span class="muted" style="font-size:11px">файл на другом компьютере</span><br><button class="ghost" style="padding:2px 6px;font-size:11px" data-regenerate-id="${esc(r.id)}">Сформировать заново</button>`;
+				}
 				const reasonShort = (r.reason || "").includes("Внеоч") ? "Внеоч" : "Очер";
 				const fioArg = esc(JSON.stringify(r.full_name_snapshot || ""));
 				return `<tr><td style="text-align:center">${esc(r.protocol_number)}</td><td style="text-align:center">${esc(r.full_name_snapshot)}</td><td style="text-align:center;font-size:12px">${reasonShort}</td><td style="text-align:center">${esc(fmt(r.check_date))}</td><td style="text-align:center">${esc(r.electrical_safety_group)}</td><td style="text-align:center">${esc(r.final_result)}</td><td style="text-align:center">${esc(fmt(r.next_check_date))}</td><td style="text-align:center">${docxLink}</td><td style="text-align:center"><button class="ghost" style="padding:3px 8px;font-size:11px;color:var(--danger)" onclick="deleteJournalRecord(${Number(r.id)}, ${fioArg}, ${Number(r.protocol_number)})">Удалить</button></td></tr>`;
