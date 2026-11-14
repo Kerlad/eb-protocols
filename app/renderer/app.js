@@ -849,27 +849,16 @@
 	};
 
 	window.submitAddEmployee = async function () {
-		let lastCheck = getVal("empLastCheck") || null;
+		const lastCheck = getVal("empLastCheck") || null;
 		let nextCheck = getVal("empNextCheck") || null;
-		let dateDeferred = false;
+		const warnEl = document.getElementById("empNextCheckWarn");
 
-		if (!lastCheck) {
-			lastCheck = "2000-01-01";
-		}
-
-		if (lastCheck === "2000-01-01") {
-			nextCheck = addDaysStr(todayStr(), 14);
-			dateDeferred = true;
-		} else if (!nextCheck) {
-			const cat = getVal("empCategory") || "";
-			const period = cat.includes("Административно") ? 3 : 1;
+		if (!nextCheck && lastCheck) {
+			const period = Number(getVal("empPeriod", "1")) || 1;
 			nextCheck = addYearsStr(lastCheck, period);
 		}
 
-		if (nextCheck && nextCheck < todayStr()) {
-			nextCheck = addDaysStr(todayStr(), 14);
-			dateDeferred = true;
-		}
+		if (warnEl) warnEl.textContent = nextCheck && nextCheck < todayStr() ? "Срок проверки истёк" : "";
 
 		const employee = {
 			last_name: getVal("empLastName").trim(),
@@ -885,7 +874,6 @@
 			last_check_date: lastCheck,
 			next_check_date: nextCheck,
 			check_period_years: Number(getVal("empPeriod", "1")) || 1,
-			note: dateDeferred ? "DATE_DEFERRED" : null,
 			rights: [...document.querySelectorAll("#empRightsBox input:checked")].map(i => Number(i.dataset.rightId))
 		};
 		if (!employee.last_name || !employee.first_name) { toast("Укажите фамилию и имя"); return; }
@@ -898,6 +886,7 @@
 				toast("Работник добавлен");
 			}
 			closeAddEmployeeModal();
+			if (warnEl) warnEl.textContent = "";
 			["empLastName", "empFirstName", "empMiddleName", "empWorkplace", "empPosition", "empLastCheck", "empNextCheck"].forEach((id) => setVal(id, ""));
 			setVal("empPeriod", "1");
 			await window.renderEmployees();
